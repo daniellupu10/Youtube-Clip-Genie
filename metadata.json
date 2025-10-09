@@ -1,0 +1,5 @@
+{
+  "name": "YouTube Clip Genie",
+  "description": "An AI-powered application that generates ready-to-use short clips from a long YouTube video URL. It provides titles, descriptions, and tags for each clip, perfect for content creators.",
+  "requestFramePermissions": []
+}
