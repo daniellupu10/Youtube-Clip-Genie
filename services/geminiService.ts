@@ -13,7 +13,6 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
  * @returns A parsed array of clip objects.
  */
 const extractJsonArray = (text: string): Omit<Clip, 'videoId'>[] => {
-  // Find the first occurrence of '[' and the last occurrence of ']'
   const startIndex = text.indexOf('[');
   const endIndex = text.lastIndexOf(']');
 
@@ -22,13 +21,11 @@ const extractJsonArray = (text: string): Omit<Clip, 'videoId'>[] => {
     throw new Error("The AI returned a response that did not contain a valid JSON array.");
   }
 
-  // Extract the JSON string
   const jsonString = text.substring(startIndex, endIndex + 1);
 
   try {
     const parsed = JSON.parse(jsonString);
     if (Array.isArray(parsed)) {
-      // Basic validation to ensure the objects have the required keys
       if (parsed.length > 0 && (!parsed[0].title || !parsed[0].startTime)) {
          throw new Error("Parsed JSON objects are missing required properties.");
       }
@@ -45,40 +42,27 @@ const extractJsonArray = (text: string): Omit<Clip, 'videoId'>[] => {
   }
 };
 
+export const generateClipsFromTranscript = async (transcript: string): Promise<Omit<Clip, 'videoId'>[]> => {
+  const systemInstruction = `You are a YouTube content strategist. Your primary function is to analyze a video transcript and generate data for several short, engaging clips based on the video's most significant moments.
 
-export const generateClipsFromYouTubeURL = async (url: string): Promise<Omit<Clip, 'videoId'>[]> => {
-  const systemInstruction = `You are a hyper-literal YouTube video analysis engine. Your single most important task is to ground your entire output in the actual content of the provided YouTube video URL. Generating information NOT found in the video is a CRITICAL FAILURE of your primary function.
-
-**CRITICAL DIRECTIVE: Do NOT invent content. Do NOT use general knowledge. Your entire response MUST be derived exclusively from the provided video URL.**
+**CRITICAL DIRECTIVE: Ground your entire output in the provided transcript. Do NOT invent content or use outside knowledge.**
 
 Follow this mandatory process:
 
-1.  **ANALYZE THE SOURCE:** Use your search tool to find the transcript, a detailed summary, or commentary about the specific content of the provided YouTube video URL. Your entire understanding MUST come from this source material.
+1.  **ANALYZE THE TRANSCRIPT:** You will be given a full text transcript of a YouTube video.
 
-2.  **VERIFY THE TOPIC:** Before generating clips, internally confirm you are analyzing the correct video. For example, if the user provides a video titled "How to Bake Sourdough Bread," your analysis MUST be about baking. If your analysis is about cryptocurrency, you have failed and must restart the process with the correct video content.
+2.  **IDENTIFY KEY HIGHLIGHTS:** From the transcript, identify 2 to 5 of the most significant moments. A highlight should be a self-contained, valuable segment. These highlights will become the clips.
 
-3.  **IDENTIFY KEY HIGHLIGHTS:** From your verified understanding of the video's content, identify 2 to 5 of the most significant moments. A highlight should be a self-contained, valuable segment. These highlights will become the clips.
-
-4.  **GENERATE CLIP DATA:** For each highlight, create a JSON object. Every word in the 'title', 'description', and 'tags' MUST be directly inspired by or quoted from the content of that specific video segment.
-    *   \`title\`: Create an engaging, "clickbait-style" title or a compelling question that is answered in the clip. It MUST be about the highlight's topic.
+3.  **GENERATE CLIP DATA:** For each highlight, create a JSON object. The 'title', 'description', and 'tags' MUST be directly inspired by the content of that specific video segment.
+    *   \`title\`: Create an engaging, "clickbait-style" title or a compelling question that is answered in the clip.
     *   \`description\`: A short, 1-2 sentence summary of what is discussed in this specific clip segment.
     *   \`tags\`: An array of 3-5 relevant keywords taken directly from the clip's content.
-    *   \`startTime\`: The precise start time of the highlight in "MM:SS" or "HH:MM:SS" format.
-    *   \`endTime\`: The precise end time of the highlight in "MM:SS" or "HH:MM:SS" format.
+    *   \`startTime\`: The precise start time of the highlight in "MM:SS" or "HH:MM:SS" format. This must be accurate.
+    *   \`endTime\`: The precise end time of the highlight in "MM:SS" or "HH:MM:SS" format. This must be accurate.
 
-5.  **FINAL OUTPUT:** Your entire response must be ONLY a single, valid JSON array of these clip objects. Do not include any other text, explanations, or markdown. Your response must start with \`[\` and end with \`]\`.
-
-**EXAMPLE OF FAILURE:**
-- User provides video about retiring early from finance.
-- Your output title: "Legal Revolution: How AI is Transforming Law Firms"
-- **This is a CRITICAL FAILURE. The title has no connection to the video's topic.**
-
-**EXAMPLE OF SUCCESS:**
-- User provides video about retiring early from finance.
-- Your output title: "The 7-Year Plan to Retire Sooner Than You Thought Possible"
-- **This is SUCCESSFUL. The title is directly related to the video's topic.**`;
+4.  **FINAL OUTPUT:** Your entire response must be ONLY a single, valid JSON array of these clip objects. Do not include any other text, explanations, or markdown. Your response must start with \`[\` and end with \`]\`.`;
   
-  const prompt = `Analyze this YouTube video and generate highlight clips: ${url}`;
+  const prompt = `Analyze the following YouTube video transcript and generate the highlight clips as a JSON array:\n\nTRANSCRIPT:\n"""\n${transcript}\n"""`;
 
   try {
     const response = await ai.models.generateContent({
@@ -86,11 +70,11 @@ Follow this mandatory process:
       contents: prompt,
       config: {
         systemInstruction,
-        tools: [{googleSearch: {}}],
       },
     });
 
-    return extractJsonArray(response.text);
+    const clips = extractJsonArray(response.text);
+    return clips;
 
   } catch (error) {
     console.error("Error generating clips:", error);

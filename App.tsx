@@ -5,7 +5,8 @@ import URLInputForm from './components/URLInputForm';
 import Loader from './components/Loader';
 import ClipList from './components/ClipList';
 import type { Clip } from './types';
-import { generateClipsFromYouTubeURL } from './services/geminiService';
+import { generateClipsFromTranscript } from './services/geminiService';
+import { getTranscriptAndDuration } from './services/transcriptService';
 
 const Toast: React.FC<{ message: string; onDismiss: () => void }> = ({ message, onDismiss }) => {
     useEffect(() => {
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [currentVideoId, setCurrentVideoId] = useState<string | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState<string>('The Genie is working its magic...');
 
   const handleUrlChange = useCallback((url: string) => {
     const videoId = getYoutubeVideoId(url);
@@ -56,13 +58,35 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setClips([]);
+
     try {
-      const generatedClips = await generateClipsFromYouTubeURL(url);
+      // Step 1: Get transcript and duration
+      setLoadingMessage("Fetching video transcript...");
+      const { transcript: transcriptSegments, duration } = await getTranscriptAndDuration(url);
+
+      // Step 2: Validate duration
+      if (duration < 60 || duration > 600) {
+        const durationMinutes = Math.floor(duration / 60);
+        const durationSeconds = Math.round(duration % 60);
+        setError(`Video duration is ${durationMinutes}m ${durationSeconds}s. Please use a video between 1 and 10 minutes long.`);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Step 3: Format transcript for Gemini
+      const fullTranscriptText = transcriptSegments.map(segment => segment.text).join(' ');
+
+      // Step 4: Generate clips from transcript
+      setLoadingMessage("Analyzing transcript & generating clips...");
+      const generatedClips = await generateClipsFromTranscript(fullTranscriptText);
+
+      // Step 5: Finalize and set state
       const clipsWithId = generatedClips.map(clip => ({ ...clip, videoId: currentVideoId }));
       setClips(clipsWithId);
+
     } catch (e) {
       if (e instanceof Error) {
-        setError(`An error occurred: ${e.message}. Please check your API key and try again.`);
+        setError(`An error occurred: ${e.message}`);
       } else {
         setError("An unknown error occurred.");
       }
@@ -85,6 +109,9 @@ const App: React.FC = () => {
         <Header />
         <div className="mt-8">
           <URLInputForm onSubmit={handleGenerateClips} isLoading={isLoading} onUrlChange={handleUrlChange} />
+           <p className="text-center text-slate-500 text-sm mt-3 max-w-2xl mx-auto">
+            For best results, use public videos that are between 1 and 10 minutes long.
+          </p>
         </div>
         
         <div className="mt-8">
@@ -100,11 +127,14 @@ const App: React.FC = () => {
                   />
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 p-4">
                     <div className="w-16 h-16 border-4 border-cyan-400 border-dashed rounded-full animate-spin"></div>
-                    <p className="text-slate-200 text-lg mt-4 font-semibold text-center">The Genie is working its magic...</p>
+                    <p className="text-slate-200 text-lg mt-4 font-semibold text-center">{loadingMessage}</p>
                   </div>
                 </div>
               ) : (
-                <Loader />
+                <div className="flex flex-col items-center justify-center space-y-4 my-16">
+                  <div className="w-16 h-16 border-4 border-cyan-400 border-dashed rounded-full animate-spin"></div>
+                  <p className="text-slate-400 text-lg">{loadingMessage}</p>
+                </div>
               )}
             </div>
           )}
@@ -117,7 +147,7 @@ const App: React.FC = () => {
               )}
 
               {!error && clips.length > 0 && (
-                <ClipList clips={clips} showToast={showToast} />
+                  <ClipList clips={clips} showToast={showToast} />
               )}
 
               {!error && clips.length === 0 && (
