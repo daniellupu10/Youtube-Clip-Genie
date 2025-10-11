@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import type { Clip } from '../types';
-import { ClipboardIcon, CheckIcon, ClockIcon } from './icons';
+import { ClipboardIcon, CheckIcon, ClockIcon, DownloadIcon } from './icons';
 
 interface ClipCardProps {
   clip: Clip;
@@ -51,6 +52,23 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
   
   const areTimestampsValid = clip.startTime && clip.endTime;
 
+  const handleDownload = () => {
+    if (!clip.videoId || !clip.startTime || !clip.endTime) {
+        showToast("Cannot generate download command: missing data.");
+        return;
+    }
+    // Sanitize title for a safe filename
+    const safeTitle = (clip.title || 'clip').replace(/[^a-z0-9_ -]/gi, '_').substring(0, 50);
+    const videoUrl = `https://www.youtube.com/watch?v=${clip.videoId}`;
+    const command = `yt-dlp --download-sections "*${clip.startTime}-${clip.endTime}" -o "${safeTitle}.mp4" "${videoUrl}"`;
+
+    navigator.clipboard.writeText(command).then(() => {
+        showToast("yt-dlp download command copied!");
+    }, () => {
+        showToast("Failed to copy command.");
+    });
+};
+
   return (
     <div className="bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/20">
       <div className="aspect-w-16 aspect-h-9 bg-slate-900 flex items-center justify-center">
@@ -75,9 +93,19 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
             <CopyButton textToCopy={clip.title} onCopy={showToast} fieldName="Title" />
         </div>
         
-        <div className="flex items-center gap-2 text-slate-400 mb-4 bg-slate-700/50 px-3 py-1.5 rounded-full w-fit">
-            <ClockIcon className="w-5 h-5" />
-            <span className="font-mono text-sm">{clip.startTime || "??:??"} - {clip.endTime || "??:??"}</span>
+        <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2 text-slate-400 bg-slate-700/50 px-3 py-1.5 rounded-full">
+                <ClockIcon className="w-5 h-5" />
+                <span className="font-mono text-sm">{clip.startTime || "??:??"} - {clip.endTime || "??:??"}</span>
+            </div>
+            <button
+                onClick={handleDownload}
+                className="p-2 rounded-full hover:bg-slate-600/50 transition-colors"
+                aria-label="Copy yt-dlp download command"
+                title="Copy a command to download this clip using the yt-dlp command-line tool."
+            >
+                <DownloadIcon className="w-5 h-5 text-slate-400" />
+            </button>
         </div>
 
         <div className="mb-4">

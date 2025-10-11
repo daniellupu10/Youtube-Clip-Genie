@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -60,27 +61,18 @@ const App: React.FC = () => {
     setClips([]);
 
     try {
-      // Step 1: Get transcript and duration
+      // Step 1: Get transcript
       setLoadingMessage("Fetching video transcript...");
-      const { transcript: transcriptSegments, duration } = await getTranscriptAndDuration(url);
-
-      // Step 2: Validate duration
-      if (duration < 60 || duration > 600) {
-        const durationMinutes = Math.floor(duration / 60);
-        const durationSeconds = Math.round(duration % 60);
-        setError(`Video duration is ${durationMinutes}m ${durationSeconds}s. Please use a video between 1 and 10 minutes long.`);
-        setIsLoading(false);
-        return;
-      }
+      const { transcript: transcriptSegments } = await getTranscriptAndDuration(url);
       
-      // Step 3: Format transcript for Gemini
+      // Step 2: Format transcript for Gemini
       const fullTranscriptText = transcriptSegments.map(segment => segment.text).join(' ');
 
-      // Step 4: Generate clips from transcript
+      // Step 3: Generate clips from transcript
       setLoadingMessage("Analyzing transcript & generating clips...");
       const generatedClips = await generateClipsFromTranscript(fullTranscriptText);
 
-      // Step 5: Finalize and set state
+      // Step 4: Finalize and set state
       const clipsWithId = generatedClips.map(clip => ({ ...clip, videoId: currentVideoId }));
       setClips(clipsWithId);
 
@@ -110,7 +102,7 @@ const App: React.FC = () => {
         <div className="mt-8">
           <URLInputForm onSubmit={handleGenerateClips} isLoading={isLoading} onUrlChange={handleUrlChange} />
            <p className="text-center text-slate-500 text-sm mt-3 max-w-2xl mx-auto">
-            For best results, use public videos that are between 1 and 10 minutes long.
+            The Genie will analyze your video and extract key segments between 1 and 10 minutes long.
           </p>
         </div>
         
