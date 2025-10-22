@@ -1,17 +1,21 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import type { Clip } from '../types';
-import { ClipboardIcon, CheckIcon, ClockIcon, DownloadIcon } from './icons';
+import { ClipboardIcon, CheckIcon, ClockIcon, DownloadIcon, SpinnerIcon } from './icons';
+import { API_CONFIG } from '../services/config';
 
 interface ClipCardProps {
   clip: Clip;
   showToast: (message: string) => void;
+  onSelect: () => void;
+  isSelected: boolean;
 }
 
 const CopyButton: React.FC<{ textToCopy: string, onCopy: (message: string) => void, fieldName: string }> = ({ textToCopy, onCopy, fieldName }) => {
-    const [copied, setCopied] = useState(false);
+    const [copied, setCopied] = React.useState(false);
 
-    const handleCopy = () => {
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent card selection when clicking copy button
         navigator.clipboard.writeText(textToCopy).then(() => {
             setCopied(true);
             onCopy(`${fieldName} copied to clipboard!`);
@@ -45,32 +49,73 @@ const timeToSeconds = (time: string): number => {
 };
 
 
-const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
+const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast, onSelect, isSelected }) => {
+  const [isDownloading, setIsDownloading] = React.useState(false);
+  
   const startSeconds = timeToSeconds(clip.startTime);
   const endSeconds = timeToSeconds(clip.endTime);
   const embedUrl = `https://www.youtube.com/embed/${clip.videoId}?start=${startSeconds}&end=${endSeconds}&rel=0&modestbranding=1&iv_load_policy=3`;
   
   const areTimestampsValid = clip.startTime && clip.endTime;
 
-  const handleDownload = () => {
-    if (!clip.videoId || !clip.startTime || !clip.endTime) {
-        showToast("Cannot generate download command: missing data.");
-        return;
-    }
-    // Sanitize title for a safe filename
-    const safeTitle = (clip.title || 'clip').replace(/[^a-z0-9_ -]/gi, '_').substring(0, 50);
-    const videoUrl = `https://www.youtube.com/watch?v=${clip.videoId}`;
-    const command = `yt-dlp --download-sections "*${clip.startTime}-${clip.endTime}" -o "${safeTitle}.mp4" "${videoUrl}"`;
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDownloading(true);
+    showToast("Preparing your clip on the server... This may take a moment.");
+    
+    try {
+        // FIX: Explicitly use window.fetch to avoid bundler issues that cause "require is not defined" error.
+        const response = await window.fetch(
+            API_CONFIG.EXPORT_MP4_ENDPOINT,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    videoId: clip.videoId,
+                    startTime: clip.startTime,
+                    endTime: clip.endTime,
+                    title: clip.title,
+                }),
+            }
+        );
 
-    navigator.clipboard.writeText(command).then(() => {
-        showToast("yt-dlp download command copied!");
-    }, () => {
-        showToast("Failed to copy command.");
-    });
-};
+        if (!response.ok) {
+            let errorMsg = `Server responded with status ${response.status}`;
+            try {
+                // Try to parse a specific error message from the backend
+                const errorData = await response.json();
+                if (errorData && errorData.error) {
+                    errorMsg = errorData.error;
+                }
+            } catch (e) {
+                // If the body isn't JSON, use the status text as a fallback
+                errorMsg = response.statusText || errorMsg;
+            }
+            throw new Error(errorMsg);
+        }
+        
+        const data = await response.json();
+        // Trigger the download by opening the S3 link
+        window.open(data.downloadUrl, "_blank");
+
+    } catch (error) {
+        console.error("Download failed:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown network error occurred.";
+        showToast(`Download failed: ${errorMessage}`);
+    } finally {
+        setIsDownloading(false);
+    }
+  };
+
 
   return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/20">
+    <div 
+        className={`bg-slate-800/50 border rounded-2xl overflow-hidden shadow-lg transform transition-all duration-300 cursor-pointer ${isSelected ? 'scale-[1.02] shadow-cyan-500/30 border-cyan-500' : 'border-slate-700 hover:border-slate-500'}`}
+        onClick={onSelect}
+        role="button"
+        tabIndex={0}
+        onKeyPress={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect()}
+    >
       <div className="aspect-w-16 aspect-h-9 bg-slate-900 flex items-center justify-center">
         {areTimestampsValid ? (
             <iframe
@@ -79,7 +124,7 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
-                className="w-full h-full"
+                className="w-full h-full pointer-events-none" // Make iframe non-interactive to allow parent click
             ></iframe>
         ) : (
             <div className="text-center text-red-400 p-4">
@@ -93,19 +138,11 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
             <CopyButton textToCopy={clip.title} onCopy={showToast} fieldName="Title" />
         </div>
         
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-start mb-4">
             <div className="flex items-center gap-2 text-slate-400 bg-slate-700/50 px-3 py-1.5 rounded-full">
                 <ClockIcon className="w-5 h-5" />
                 <span className="font-mono text-sm">{clip.startTime || "??:??"} - {clip.endTime || "??:??"}</span>
             </div>
-            <button
-                onClick={handleDownload}
-                className="p-2 rounded-full hover:bg-slate-600/50 transition-colors"
-                aria-label="Copy yt-dlp download command"
-                title="Copy a command to download this clip using the yt-dlp command-line tool."
-            >
-                <DownloadIcon className="w-5 h-5 text-slate-400" />
-            </button>
         </div>
 
         <div className="mb-4">
@@ -116,7 +153,7 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
             <p className="text-slate-400 text-sm max-h-24 overflow-y-auto pr-2">{clip.description || "No description provided."}</p>
         </div>
         
-        <div>
+        <div className="mb-6">
             <div className="flex justify-between items-center mb-2">
                 <h4 className="font-semibold text-slate-300">Tags</h4>
                 <CopyButton textToCopy={(clip.tags || []).join(', ')} onCopy={showToast} fieldName="Tags" />
@@ -130,6 +167,23 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast }) => {
             </div>
         </div>
 
+        <button
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-slate-700 text-cyan-300 font-bold rounded-lg hover:bg-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-600/50 transition-all duration-300 ease-in-out disabled:bg-slate-700/50 disabled:cursor-wait"
+        >
+          {isDownloading ? (
+              <>
+                <SpinnerIcon className="w-5 h-5" />
+                <span>Preparing Clip...</span>
+              </>
+          ) : (
+              <>
+                <DownloadIcon className="w-5 h-5" />
+                <span>Download Clip</span>
+              </>
+          )}
+        </button>
       </div>
     </div>
   );

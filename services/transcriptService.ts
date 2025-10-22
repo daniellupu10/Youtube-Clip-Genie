@@ -4,7 +4,7 @@
 const TRANSCRIPT_API_KEY = 'sk_gq7px1hBiSN-WGP5tLTp7aLwx5IBoeNocTdfZxRjXUY';
 const API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube/transcript';
 
-interface TranscriptSegment {
+export interface TranscriptSegment {
     text: string;
     start: number;
     duration: number;
@@ -21,7 +21,7 @@ export const getTranscriptAndDuration = async (videoUrl: string): Promise<Transc
     url.searchParams.append('format', 'json'); // We need JSON for segments and duration calculation
     
     try {
-        const response = await fetch(url.toString(), {
+        const response = await window.fetch(url.toString(), {
             headers: {
                 'Authorization': `Bearer ${TRANSCRIPT_API_KEY}`
             }
