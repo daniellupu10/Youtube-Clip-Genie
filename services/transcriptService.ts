@@ -2,6 +2,12 @@
 const TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || '';
 const API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube/transcript';
 
+if (!TRANSCRIPT_API_KEY) {
+    console.error("TRANSCRIPT_API_KEY is missing! Transcript fetching will fail.");
+} else {
+    console.log("Transcript API key configured successfully");
+}
+
 export interface TranscriptSegment {
     text: string;
     start: number;

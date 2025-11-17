@@ -5,9 +5,11 @@ import type { TranscriptSegment } from './transcriptService';
 
 
 if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable is not set.");
+    console.error("GEMINI API_KEY is missing! Please check your environment variables.");
+    throw new Error("API_KEY environment variable is not set. Please configure GEMINI_API_KEY in your GitHub repository secrets.");
 }
 
+console.log("Gemini API initialized successfully");
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const timeToSeconds = (time: string): number => {
