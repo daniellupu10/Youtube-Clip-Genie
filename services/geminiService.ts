@@ -4,13 +4,22 @@ import type { UserPlan } from '../types';
 import type { TranscriptSegment } from './transcriptService';
 
 
-if (!process.env.API_KEY) {
-    console.error("GEMINI API_KEY is missing! Please check your environment variables.");
-    throw new Error("API_KEY environment variable is not set. Please configure GEMINI_API_KEY in your GitHub repository secrets.");
-}
+// Initialize Gemini API - check at runtime, not module load
+let ai: any = null;
 
-console.log("Gemini API initialized successfully");
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getGeminiClient = () => {
+    if (!process.env.API_KEY) {
+        console.error("GEMINI API_KEY is missing! Please check your environment variables.");
+        throw new Error("API_KEY environment variable is not set. Please configure GEMINI_API_KEY in Vercel environment variables.");
+    }
+
+    if (!ai) {
+        console.log("Gemini API initialized successfully");
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    }
+
+    return ai;
+};
 
 const timeToSeconds = (time: string): number => {
     if (!time || !time.includes(':')) return NaN;
@@ -111,7 +120,7 @@ export const generateClipsFromTranscript = async (transcript: string, transcript
   const prompt = `Analyze the following YouTube video transcript and generate the highlight clips as a JSON array:\n\nTRANSCRIPT:\n"""\n${transcript}\n"""`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getGeminiClient().models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: {
