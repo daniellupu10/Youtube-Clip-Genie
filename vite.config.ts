@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     const TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || env.TRANSCRIPT_API_KEY;
 
     return {
-      base: '/Youtube-Clip-Genie/',
+      base: '/',
       server: {
         port: 3000,
         host: '0.0.0.0',
