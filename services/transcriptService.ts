@@ -1,6 +1,8 @@
-// API key is now loaded from environment variables for security
+// Using CORS proxy to access transcript API from browser
 const TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || '';
 const API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube/transcript';
+// CORS proxy to allow browser requests
+const CORS_PROXY = 'https://corsproxy.io/?';
 
 if (!TRANSCRIPT_API_KEY) {
     console.error("TRANSCRIPT_API_KEY is missing! Transcript fetching will fail.");
@@ -22,12 +24,17 @@ export interface TranscriptResponse {
 export const getTranscriptAndDuration = async (videoUrl: string): Promise<TranscriptResponse> => {
     const url = new URL(API_BASE_URL);
     url.searchParams.append('video_url', videoUrl);
-    url.searchParams.append('format', 'json'); // We need JSON for segments and duration calculation
-    
+    url.searchParams.append('format', 'json');
+
+    // Use CORS proxy to bypass browser restrictions
+    const proxiedUrl = CORS_PROXY + encodeURIComponent(url.toString());
+
     try {
-        const response = await window.fetch(url.toString(), {
+        console.log("Fetching transcript for:", videoUrl);
+        const response = await window.fetch(proxiedUrl, {
             headers: {
-                'Authorization': `Bearer ${TRANSCRIPT_API_KEY}`
+                'Authorization': `Bearer ${TRANSCRIPT_API_KEY}`,
+                'Content-Type': 'application/json'
             }
         });
 
@@ -46,6 +53,8 @@ export const getTranscriptAndDuration = async (videoUrl: string): Promise<Transc
         const lastSegment = transcriptSegments[transcriptSegments.length - 1];
         const totalDuration = lastSegment.start + lastSegment.duration;
 
+        console.log(`✓ Successfully fetched transcript: ${transcriptSegments.length} segments, ${Math.floor(totalDuration/60)} minutes`);
+
         return {
             transcript: transcriptSegments,
             duration: totalDuration,
@@ -53,9 +62,8 @@ export const getTranscriptAndDuration = async (videoUrl: string): Promise<Transc
 
     } catch (error) {
         console.error('Error fetching transcript:', error);
-        // Re-throw a more user-friendly error. Network errors from the browser are often CORS-related.
         if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-             throw new Error('A network error occurred while fetching the transcript. This could be a CORS issue, as this API may not be callable directly from the browser.');
+             throw new Error('Network error: Unable to fetch transcript. Please check your internet connection and try again.');
         }
         if (error instanceof Error) {
             throw new Error(error.message);
