@@ -1,7 +1,5 @@
-// WARNING: Hardcoding API keys in client-side code is a security risk.
-// This key will be visible to anyone inspecting the website's code.
-// For a production application, this call should be made from a backend server.
-const TRANSCRIPT_API_KEY = 'sk_gq7px1hBiSN-WGP5tLTp7aLwx5IBoeNocTdfZxRjXUY';
+// API key is now loaded from environment variables for security
+const TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || '';
 const API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube/transcript';
 
 export interface TranscriptSegment {

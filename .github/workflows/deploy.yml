@@ -36,6 +36,7 @@ jobs:
         run: npm run build
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TRANSCRIPT_API_KEY: ${{ secrets.TRANSCRIPT_API_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
