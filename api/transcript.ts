@@ -2,6 +2,7 @@
 // This runs on the backend, avoiding CORS issues
 
 import { NextApiRequest, NextApiResponse } from 'next';
+import { YoutubeTranscript } from 'youtube-transcript';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Enable CORS
@@ -22,8 +23,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Try multiple transcript sources with better error logging
-    const sources = [
+    const errors: string[] = [];
+
+    // Method 1: Try youtube-transcript package (most reliable)
+    try {
+      console.log('Trying youtube-transcript package...');
+      const transcript = await YoutubeTranscript.fetchTranscript(videoId, {
+        lang: 'en'
+      });
+
+      if (transcript && transcript.length > 0) {
+        const segments = transcript.map((item: any) => ({
+          text: item.text || '',
+          start: parseFloat(item.offset || 0) / 1000,
+          duration: parseFloat(item.duration || 0) / 1000
+        })).filter((s: any) => s.text.trim());
+
+        if (segments.length > 0) {
+          console.log(`✓ youtube-transcript succeeded with ${segments.length} segments`);
+          return res.status(200).json({ transcript: segments });
+        }
+      }
+    } catch (e: any) {
+      errors.push(`youtube-transcript: ${e.message}`);
+      console.error('youtube-transcript failed:', e);
+    }
+
+    // Method 2-5: Fallback to other APIs
+    const fallbackSources = [
       {
         name: 'YouTube Transcript API',
         url: `https://youtube-transcript3.p.rapidapi.com/api/transcript`,
@@ -52,9 +79,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     ];
 
-    const errors: string[] = [];
-
-    for (const source of sources) {
+    for (const source of fallbackSources) {
       try {
         console.log(`Trying ${source.name}...`);
 
