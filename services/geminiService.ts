@@ -8,14 +8,17 @@ import type { TranscriptSegment } from './transcriptService';
 let ai: any = null;
 
 const getGeminiClient = () => {
-    if (!process.env.API_KEY) {
-        console.error("GEMINI API_KEY is missing! Please check your environment variables.");
-        throw new Error("API_KEY environment variable is not set. Please configure GEMINI_API_KEY in Vercel environment variables.");
+    // Check for GEMINI_API_KEY first (Vercel), then fallback to API_KEY
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+
+    if (!apiKey) {
+        console.error("GEMINI API_KEY is missing! Please check your Vercel environment variables.");
+        throw new Error("GEMINI_API_KEY environment variable is not set. Please configure it in Vercel environment variables.");
     }
 
     if (!ai) {
-        console.log("Gemini API initialized successfully");
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        console.log("Gemini API initialized successfully with key:", apiKey.substring(0, 10) + "...");
+        ai = new GoogleGenAI({ apiKey });
     }
 
     return ai;

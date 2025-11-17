@@ -2,6 +2,7 @@
 // This runs on the backend, avoiding CORS issues
 
 import { NextApiRequest, NextApiResponse } from 'next';
+import { YoutubeTranscript } from 'youtube-transcript';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Enable CORS
@@ -22,47 +23,135 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Try multiple transcript sources
-    const sources = [
-      `https://api.kofiscrib.com/api/yt/transcript?videoId=${videoId}`,
-      `https://youtube-transcript-api.deno.dev/${videoId}`,
+    const errors: string[] = [];
+
+    // Method 1: Try youtube-transcript package (most reliable)
+    try {
+      console.log('Trying youtube-transcript package...');
+      const transcript = await YoutubeTranscript.fetchTranscript(videoId, {
+        lang: 'en'
+      });
+
+      if (transcript && transcript.length > 0) {
+        const segments = transcript.map((item: any) => ({
+          text: item.text || '',
+          start: parseFloat(item.offset || 0) / 1000,
+          duration: parseFloat(item.duration || 0) / 1000
+        })).filter((s: any) => s.text.trim());
+
+        if (segments.length > 0) {
+          console.log(`✓ youtube-transcript succeeded with ${segments.length} segments`);
+          return res.status(200).json({ transcript: segments });
+        }
+      }
+    } catch (e: any) {
+      errors.push(`youtube-transcript: ${e.message}`);
+      console.error('youtube-transcript failed:', e);
+    }
+
+    // Method 2-5: Fallback to other APIs
+    const fallbackSources = [
+      {
+        name: 'YouTube Transcript API',
+        url: `https://youtube-transcript3.p.rapidapi.com/api/transcript`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-RapidAPI-Key': process.env.TRANSCRIPT_API_KEY || '',
+          'X-RapidAPI-Host': 'youtube-transcript3.p.rapidapi.com'
+        },
+        body: JSON.stringify({ video_id: videoId, lang: 'en' })
+      },
+      {
+        name: 'Kofiscrib API',
+        url: `https://api.kofiscrib.com/api/yt/transcript?videoId=${videoId}`,
+        method: 'GET'
+      },
+      {
+        name: 'YouTube Transcript Deno',
+        url: `https://youtube-transcript-api.deno.dev/${videoId}`,
+        method: 'GET'
+      },
+      {
+        name: 'Direct YouTube API',
+        url: `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
+        method: 'GET'
+      }
     ];
 
-    for (const source of sources) {
+    for (const source of fallbackSources) {
       try {
-        const response = await fetch(source);
+        console.log(`Trying ${source.name}...`);
+
+        const fetchOptions: any = {
+          method: source.method,
+        };
+
+        if (source.headers) {
+          fetchOptions.headers = source.headers;
+        }
+
+        if (source.body) {
+          fetchOptions.body = source.body;
+        }
+
+        const response = await fetch(source.url, fetchOptions);
+
         if (response.ok) {
           const data = await response.json();
+          console.log(`${source.name} response:`, data);
 
           // Normalize the data format
           let transcript;
+
+          // Handle different API response formats
           if (Array.isArray(data)) {
             transcript = data;
           } else if (data.transcript && Array.isArray(data.transcript)) {
             transcript = data.transcript;
+          } else if (data.events && Array.isArray(data.events)) {
+            // YouTube timedtext format
+            transcript = data.events
+              .filter((e: any) => e.segs)
+              .flatMap((e: any) => e.segs.map((s: any) => ({
+                text: s.utf8 || '',
+                start: e.tStartMs / 1000,
+                duration: (e.dDurationMs || 0) / 1000
+              })));
+          } else if (data.captions && Array.isArray(data.captions)) {
+            transcript = data.captions;
           } else {
+            errors.push(`${source.name}: Unexpected format`);
             continue;
           }
 
           // Convert to our format
           const segments = transcript.map((item: any) => ({
-            text: item.text || '',
-            start: parseFloat(item.offset || item.start || 0) / 1000,
-            duration: parseFloat(item.duration || item.dur || 0) / 1000
-          }));
+            text: item.text || item.utf8 || '',
+            start: parseFloat(item.offset || item.start || item.tStartMs || 0) / (item.tStartMs ? 1 : 1000),
+            duration: parseFloat(item.duration || item.dur || item.dDurationMs || 0) / (item.dDurationMs ? 1 : 1000)
+          })).filter((s: any) => s.text.trim());
 
           if (segments.length > 0) {
+            console.log(`✓ ${source.name} succeeded with ${segments.length} segments`);
             return res.status(200).json({ transcript: segments });
           }
+        } else {
+          errors.push(`${source.name}: HTTP ${response.status}`);
         }
-      } catch (e) {
-        continue;
+      } catch (e: any) {
+        errors.push(`${source.name}: ${e.message}`);
+        console.error(`Error with ${source.name}:`, e);
       }
     }
 
-    return res.status(404).json({ error: 'No transcript found' });
-  } catch (error) {
+    console.error('All transcript sources failed:', errors);
+    return res.status(404).json({
+      error: 'No English captions available for this video. Please try a video with captions enabled.',
+      details: errors
+    });
+  } catch (error: any) {
     console.error('Error fetching transcript:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 }
