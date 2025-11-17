@@ -1,5 +1,5 @@
-// Fetch YouTube transcripts using TranscriptAPI through AllOrigins proxy
-// This uses a proper transcript API instead of scraping YouTube pages
+// Fetch YouTube transcripts directly using YouTube's public timedtext API
+// This API doesn't have CORS restrictions and works reliably
 
 export interface TranscriptSegment {
     text: string;
@@ -22,8 +22,50 @@ const getVideoId = (url: string): string | null => {
     return null;
 };
 
-// The transcript API key (safe to use - read-only access to public YouTube data)
-const TRANSCRIPT_API_KEY = 'sk_gq7px1hBiSN-WGP5tLTp7aLwx5IBoeNocTdfZxRjXUY';
+// Parse YouTube's timedtext XML format
+const parseTimedTextXML = (xml: string): TranscriptSegment[] => {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xml, 'text/xml');
+
+    // Check for parsing errors
+    const parserError = xmlDoc.querySelector('parsererror');
+    if (parserError) {
+        throw new Error('Failed to parse transcript XML');
+    }
+
+    const textElements = xmlDoc.getElementsByTagName('text');
+    const segments: TranscriptSegment[] = [];
+
+    for (let i = 0; i < textElements.length; i++) {
+        const element = textElements[i];
+        const start = parseFloat(element.getAttribute('start') || '0');
+        const duration = parseFloat(element.getAttribute('dur') || '0');
+        const text = element.textContent || '';
+
+        // Decode HTML entities
+        const decodedText = text
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\n/g, ' ')
+            .trim();
+
+        if (decodedText) {
+            segments.push({
+                text: decodedText,
+                start,
+                duration
+            });
+        }
+    }
+
+    return segments;
+};
+
+// Try multiple languages for captions
+const CAPTION_LANGUAGES = ['en', 'en-US', 'en-GB', 'a.en', 'en-CA', 'en-AU'];
 
 export const getTranscriptAndDuration = async (videoUrl: string): Promise<TranscriptResponse> => {
     const videoId = getVideoId(videoUrl);
@@ -32,71 +74,63 @@ export const getTranscriptAndDuration = async (videoUrl: string): Promise<Transc
         throw new Error('Invalid YouTube URL. Please provide a valid YouTube video link.');
     }
 
-    try {
-        console.log('Fetching transcript for video ID:', videoId);
+    console.log('Fetching transcript for video ID:', videoId);
 
-        // Build the transcript API URL
-        const apiUrl = new URL('https://transcriptapi.com/api/v2/youtube/transcript');
-        apiUrl.searchParams.append('video_url', videoUrl);
-        apiUrl.searchParams.append('format', 'json');
+    let lastError: Error | null = null;
 
-        // Use AllOrigins to proxy the request and bypass CORS
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl.toString())}`;
-
-        console.log('Fetching transcript through AllOrigins proxy...');
-
-        const response = await fetch(proxyUrl, {
-            headers: {
-                'Authorization': `Bearer ${TRANSCRIPT_API_KEY}`
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to fetch transcript (Status: ${response.status})`);
-        }
-
-        const data = await response.json();
-
-        // AllOrigins wraps the response in a "contents" field
-        let transcriptData;
+    // Try each language option
+    for (const lang of CAPTION_LANGUAGES) {
         try {
-            transcriptData = JSON.parse(data.contents);
-        } catch (e) {
-            console.error('Failed to parse transcript data:', e);
-            throw new Error('Invalid response from transcript service');
-        }
+            console.log(`Trying to fetch captions with language: ${lang}`);
 
-        const transcriptSegments = transcriptData.transcript as TranscriptSegment[];
+            // YouTube's public timedtext API - no CORS restrictions!
+            const captionUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}`;
 
-        if (!Array.isArray(transcriptSegments) || transcriptSegments.length === 0) {
-            throw new Error('No captions/transcripts available for this video. Please try a video with captions enabled.');
-        }
+            const response = await fetch(captionUrl);
 
-        // Calculate total duration
-        const lastSegment = transcriptSegments[transcriptSegments.length - 1];
-        const totalDuration = lastSegment.start + lastSegment.duration;
-
-        console.log(`✓ Successfully fetched transcript: ${transcriptSegments.length} segments, ${Math.floor(totalDuration/60)} minutes`);
-
-        return {
-            transcript: transcriptSegments,
-            duration: totalDuration
-        };
-
-    } catch (error) {
-        console.error('Error fetching transcript:', error);
-
-        if (error instanceof Error) {
-            // Provide helpful error messages
-            if (error.message.includes('Failed to fetch')) {
-                throw new Error('Network error: Unable to connect to the transcript service. Please check your internet connection and try again.');
+            if (!response.ok) {
+                console.log(`Failed with language ${lang}: ${response.status}`);
+                continue; // Try next language
             }
-            if (error.message.includes('No captions')) {
-                throw error; // Pass through caption-specific errors
-            }
-            throw new Error(`Transcript error: ${error.message}`);
-        }
 
-        throw new Error('An unknown error occurred while fetching the transcript.');
+            const xmlText = await response.text();
+
+            // Check if we got actual content (not an error message)
+            if (!xmlText || xmlText.length < 100 || !xmlText.includes('<text')) {
+                console.log(`No valid captions found for language ${lang}`);
+                continue; // Try next language
+            }
+
+            const segments = parseTimedTextXML(xmlText);
+
+            if (segments.length === 0) {
+                console.log(`Empty transcript for language ${lang}`);
+                continue; // Try next language
+            }
+
+            // Calculate total duration
+            const lastSegment = segments[segments.length - 1];
+            const totalDuration = lastSegment.start + lastSegment.duration;
+
+            console.log(`✓ Successfully fetched transcript: ${segments.length} segments, ${Math.floor(totalDuration/60)} minutes (${lang})`);
+
+            return {
+                transcript: segments,
+                duration: totalDuration
+            };
+
+        } catch (error) {
+            console.log(`Error with language ${lang}:`, error);
+            lastError = error instanceof Error ? error : new Error('Unknown error');
+            continue; // Try next language
+        }
     }
+
+    // If we get here, none of the languages worked
+    console.error('Failed to fetch transcript with any language option');
+
+    throw new Error(
+        'No captions/transcripts available for this video. Please try a different video with captions or auto-generated subtitles enabled. ' +
+        'Note: The video must have English captions or auto-generated captions available.'
+    );
 };
