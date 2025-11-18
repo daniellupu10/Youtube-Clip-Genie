@@ -28,18 +28,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const errors: string[] = [];
 
-    // Method 1: Use your paid RapidAPI transcript service (PRIMARY)
+    // Method 1: Use your paid transcriptapi.com service (PRIMARY)
     const sources = [
       {
-        name: 'RapidAPI YouTube Transcript (PAID)',
-        url: `https://youtube-transcript3.p.rapidapi.com/api/transcript`,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-RapidAPI-Key': transcriptApiKey || '',
-          'X-RapidAPI-Host': 'youtube-transcript3.p.rapidapi.com'
-        },
-        body: JSON.stringify({ video_id: videoId, lang: 'en' })
+        name: 'TranscriptAPI.com (PAID)',
+        url: `https://api.transcriptapi.com/api/transcript?video_id=${videoId}&api_key=${transcriptApiKey}`,
+        method: 'GET'
       },
       {
         name: 'Kofiscrib API',
