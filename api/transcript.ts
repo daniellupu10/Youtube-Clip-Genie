@@ -32,7 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sources = [
       {
         name: 'TranscriptAPI.com (PAID)',
-        url: `https://transcriptapi.com/api/v2/youtube/transcript?video_url=${videoId}&format=json&include_timestamp=true`,
+        url: `https://transcriptapi.com/api/v2/youtube/transcript?video_url=${videoId}&format=json`,
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${transcriptApiKey}`
@@ -131,9 +131,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     console.error('All transcript sources failed:', errors);
+
+    // Return detailed error information for debugging
     return res.status(404).json({
       error: 'No English captions available for this video. Please try a video with captions enabled.',
-      details: errors
+      details: errors,
+      debugInfo: {
+        videoId,
+        apiKeyAvailable: !!transcriptApiKey,
+        apiKeyPrefix: transcriptApiKey ? transcriptApiKey.substring(0, 10) : 'MISSING',
+        attemptedSources: sources.map(s => s.name)
+      }
     });
   } catch (error: any) {
     console.error('Error fetching transcript:', error);

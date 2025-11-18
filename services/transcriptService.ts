@@ -36,8 +36,21 @@ export const getTranscriptAndDuration = async (videoUrl: string): Promise<Transc
         const response = await fetch(`/api/transcript?videoId=${videoId}`);
 
         if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+
+            // Log detailed error information for debugging
+            console.error('❌ Transcript API Error:', {
+                status: response.status,
+                error: errorData.error,
+                details: errorData.details,
+                debugInfo: errorData.debugInfo
+            });
+
             if (response.status === 404) {
-                throw new Error('No English captions available for this video. Please try a video with captions enabled.');
+                const errorMsg = errorData.details
+                    ? `Transcript failed. Details: ${JSON.stringify(errorData.details)}`
+                    : 'No English captions available for this video. Please try a video with captions enabled.';
+                throw new Error(errorMsg);
             }
             throw new Error(`Failed to fetch transcript: ${response.status}`);
         }
