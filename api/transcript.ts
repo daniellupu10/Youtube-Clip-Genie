@@ -32,8 +32,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sources = [
       {
         name: 'TranscriptAPI.com (PAID)',
-        url: `https://api.transcriptapi.com/api/transcript?video_id=${videoId}&api_key=${transcriptApiKey}`,
-        method: 'GET'
+        url: `https://transcriptapi.com/api/v2/youtube/transcript?video_url=${videoId}&format=json&include_timestamp=true`,
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${transcriptApiKey}`
+        }
       },
       {
         name: 'Kofiscrib API',
@@ -83,7 +86,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (Array.isArray(data)) {
             transcript = data;
           } else if (data.transcript && Array.isArray(data.transcript)) {
+            // TranscriptAPI.com format
             transcript = data.transcript;
+          } else if (data.data && Array.isArray(data.data)) {
+            // Alternative format with data wrapper
+            transcript = data.data;
           } else if (data.events && Array.isArray(data.events)) {
             // YouTube timedtext format
             transcript = data.events
@@ -96,15 +103,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           } else if (data.captions && Array.isArray(data.captions)) {
             transcript = data.captions;
           } else {
-            errors.push(`${source.name}: Unexpected format`);
+            errors.push(`${source.name}: Unexpected format - ${JSON.stringify(Object.keys(data))}`);
             continue;
           }
 
           // Convert to our format
           const segments = transcript.map((item: any) => ({
             text: item.text || item.utf8 || '',
-            start: parseFloat(item.offset || item.start || item.tStartMs || 0) / (item.tStartMs ? 1 : 1000),
-            duration: parseFloat(item.duration || item.dur || item.dDurationMs || 0) / (item.dDurationMs ? 1 : 1000)
+            start: parseFloat(item.start || item.offset || item.timestamp || item.tStartMs || 0) / (item.tStartMs ? 1 : 1),
+            duration: parseFloat(item.duration || item.dur || item.dDurationMs || 3) / (item.dDurationMs ? 1 : 1)
           })).filter((s: any) => s.text.trim());
 
           if (segments.length > 0) {
