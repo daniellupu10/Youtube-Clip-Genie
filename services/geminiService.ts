@@ -45,6 +45,8 @@ const timeToSeconds = (time: string): number => {
  * @returns A parsed array of clip objects.
  */
 const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] => {
+  console.log("Raw AI response (first 500 chars):", text.substring(0, 500));
+
   const startIndex = text.indexOf('[');
   const endIndex = text.lastIndexOf(']');
 
@@ -54,20 +56,26 @@ const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] 
   }
 
   let jsonString = text.substring(startIndex, endIndex + 1);
+  console.log("Extracted JSON (first 500 chars):", jsonString.substring(0, 500));
 
   // Clean up common JSON formatting issues from AI responses
   jsonString = jsonString
     // Remove trailing commas before closing braces/brackets
     .replace(/,(\s*[}\]])/g, '$1')
-    // Fix missing commas between properties (common AI error)
-    .replace(/"\s*\n\s*"/g, '",\n"')
     // Remove any markdown code fence artifacts
     .replace(/```json/g, '')
     .replace(/```/g, '')
-    // Fix single quotes to double quotes
-    .replace(/'/g, '"')
-    // Remove any control characters
-    .replace(/[\x00-\x1F\x7F]/g, '');
+    // Remove any control characters except newlines
+    .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '')
+    // Fix property names without quotes (e.g., title: -> "title":)
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    // Fix missing commas between properties on different lines
+    .replace(/"\s*\n\s*"/g, '",\n"')
+    // Ensure spaces after colons and commas
+    .replace(/:\s*/g, ': ')
+    .replace(/,\s*/g, ', ');
+
+  console.log("Cleaned JSON (first 500 chars):", jsonString.substring(0, 500));
 
   try {
     const parsed = JSON.parse(jsonString);
@@ -75,35 +83,49 @@ const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] 
       if (parsed.length > 0 && (!parsed[0].title || !parsed[0].startTime)) {
          throw new Error("Parsed JSON objects are missing required properties.");
       }
+      console.log(`✓ Successfully parsed ${parsed.length} clips`);
       return parsed;
     } else {
       throw new Error("Parsed JSON is not an array.");
     }
   } catch (error) {
-    console.error("Failed to parse extracted JSON string.", { jsonString, error });
+    console.error("Failed to parse extracted JSON string.", {
+      error,
+      jsonPreview: jsonString.substring(0, 200)
+    });
 
-    // Try one more time with aggressive cleanup
+    // Try even more aggressive cleanup
     try {
-      // More aggressive: try to fix common structural issues
+      console.log("Attempting aggressive cleanup...");
+
+      // Remove all single quotes and replace with double quotes carefully
       let fixedJson = jsonString
-        // Ensure proper spacing around colons
-        .replace(/:\s*/g, ': ')
-        // Ensure proper spacing after commas
-        .replace(/,\s*/g, ', ');
+        // First, protect already quoted strings
+        .replace(/"([^"]*)"/g, (match) => {
+          return match.replace(/'/g, '\u0001'); // Temporary placeholder
+        })
+        // Replace remaining single quotes with double quotes
+        .replace(/'/g, '"')
+        // Restore protected single quotes
+        .replace(/\u0001/g, "'")
+        // Fix any remaining structural issues
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+
+      console.log("Aggressively cleaned JSON (first 500 chars):", fixedJson.substring(0, 500));
 
       const retryParsed = JSON.parse(fixedJson);
       if (Array.isArray(retryParsed)) {
-        console.log("✓ Successfully parsed JSON after cleanup");
+        console.log("✓ Successfully parsed JSON after aggressive cleanup");
         return retryParsed;
       }
     } catch (retryError) {
-      // If retry also fails, throw original error
+      console.error("Aggressive cleanup also failed:", retryError);
     }
 
     if (error instanceof Error) {
-        throw new Error(`The AI returned a malformed JSON array: ${error.message}`);
+        throw new Error(`The AI returned a malformed JSON array: ${error.message}. Please try again.`);
     }
-    throw new Error("The AI returned a malformed JSON array.");
+    throw new Error("The AI returned a malformed JSON array. Please try again.");
   }
 };
 
@@ -148,12 +170,21 @@ Follow this mandatory process:
 
 5.  **FINAL OUTPUT:** Your entire response must be ONLY a single, valid JSON array of these clip objects. Do not include any other text, explanations, or markdown. Your response must start with \`[\` and end with \`]\`.
 
-**JSON FORMATTING RULES:**
-- Use double quotes for all strings, never single quotes
-- Ensure all properties are separated by commas
-- Do NOT put trailing commas before closing braces
-- Ensure all JSON is syntactically valid and can be parsed
-- Output ONLY the JSON array, no other text before or after`;
+**CRITICAL JSON FORMATTING RULES - FOLLOW EXACTLY:**
+- ALL property names MUST be in double quotes: "title", "description", "tags", "startTime", "endTime"
+- ALL string values MUST be in double quotes
+- NEVER use single quotes anywhere
+- Each property must be separated by a comma: "title": "...", "description": "..."
+- Do NOT put trailing commas before closing braces or brackets
+- Tags must be an array with double quotes: "tags": ["tag1", "tag2"]
+- Times must be strings in quotes: "startTime": "01:30"
+- Test your JSON is valid before responding
+- Output ONLY the JSON array, absolutely no text before or after
+
+**EXAMPLE OF CORRECT FORMAT:**
+\`\`\`
+[{"title": "Amazing Discovery", "description": "This reveals something incredible.", "tags": ["discovery", "science"], "startTime": "01:30", "endTime": "05:45"}]
+\`\`\``;
 }
 
 
