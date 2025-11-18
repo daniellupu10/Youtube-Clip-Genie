@@ -51,12 +51,38 @@ const timeToSeconds = (time: string): number => {
 
 const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast, onSelect, isSelected }) => {
   const [isDownloading, setIsDownloading] = React.useState(false);
-  
-  const startSeconds = timeToSeconds(clip.startTime);
-  const endSeconds = timeToSeconds(clip.endTime);
+  const [isEditingTime, setIsEditingTime] = React.useState(false);
+  const [editedStartTime, setEditedStartTime] = React.useState(clip.startTime);
+  const [editedEndTime, setEditedEndTime] = React.useState(clip.endTime);
+
+  const currentStartTime = isEditingTime ? editedStartTime : clip.startTime;
+  const currentEndTime = isEditingTime ? editedEndTime : clip.endTime;
+
+  const startSeconds = timeToSeconds(currentStartTime);
+  const endSeconds = timeToSeconds(currentEndTime);
   const embedUrl = `https://www.youtube.com/embed/${clip.videoId}?start=${startSeconds}&end=${endSeconds}&rel=0&modestbranding=1&iv_load_policy=3`;
-  
-  const areTimestampsValid = clip.startTime && clip.endTime;
+
+  const areTimestampsValid = currentStartTime && currentEndTime;
+
+  const handleSaveTime = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    clip.startTime = editedStartTime;
+    clip.endTime = editedEndTime;
+    setIsEditingTime(false);
+    showToast("Timestamps updated!");
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditedStartTime(clip.startTime);
+    setEditedEndTime(clip.endTime);
+    setIsEditingTime(false);
+  };
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditingTime(true);
+  };
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -138,11 +164,60 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, showToast, onSelect, isSelect
             <CopyButton textToCopy={clip.title} onCopy={showToast} fieldName="Title" />
         </div>
         
-        <div className="flex items-center justify-start mb-4">
-            <div className="flex items-center gap-2 text-slate-400 bg-slate-700/50 px-3 py-1.5 rounded-full">
-                <ClockIcon className="w-5 h-5" />
-                <span className="font-mono text-sm">{clip.startTime || "??:??"} - {clip.endTime || "??:??"}</span>
-            </div>
+        <div className="mb-4">
+            {!isEditingTime ? (
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-slate-400 bg-slate-700/50 px-3 py-1.5 rounded-full">
+                        <ClockIcon className="w-5 h-5" />
+                        <span className="font-mono text-sm">{currentStartTime || "??:??"} - {currentEndTime || "??:??"}</span>
+                    </div>
+                    <button
+                        onClick={handleEditClick}
+                        className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+                    >
+                        Edit Times
+                    </button>
+                </div>
+            ) : (
+                <div className="bg-slate-700/50 p-3 rounded-lg space-y-3">
+                    <div className="flex flex-col gap-2">
+                        <label className="text-xs text-slate-400">Start Time (MM:SS or HH:MM:SS)</label>
+                        <input
+                            type="text"
+                            value={editedStartTime}
+                            onChange={(e) => {e.stopPropagation(); setEditedStartTime(e.target.value)}}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-slate-800 text-slate-200 px-3 py-2 rounded font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            placeholder="00:00"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-xs text-slate-400">End Time (MM:SS or HH:MM:SS)</label>
+                        <input
+                            type="text"
+                            value={editedEndTime}
+                            onChange={(e) => {e.stopPropagation(); setEditedEndTime(e.target.value)}}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-slate-800 text-slate-200 px-3 py-2 rounded font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            placeholder="10:00"
+                        />
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleSaveTime}
+                            className="flex-1 bg-cyan-500 text-slate-900 font-semibold py-2 rounded hover:bg-cyan-400 transition"
+                        >
+                            Save
+                        </button>
+                        <button
+                            onClick={handleCancelEdit}
+                            className="flex-1 bg-slate-600 text-slate-200 font-semibold py-2 rounded hover:bg-slate-500 transition"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
 
         <div className="mb-4">
