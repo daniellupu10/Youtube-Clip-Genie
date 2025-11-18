@@ -53,7 +53,21 @@ const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] 
     throw new Error("The AI returned a response that did not contain a valid JSON array.");
   }
 
-  const jsonString = text.substring(startIndex, endIndex + 1);
+  let jsonString = text.substring(startIndex, endIndex + 1);
+
+  // Clean up common JSON formatting issues from AI responses
+  jsonString = jsonString
+    // Remove trailing commas before closing braces/brackets
+    .replace(/,(\s*[}\]])/g, '$1')
+    // Fix missing commas between properties (common AI error)
+    .replace(/"\s*\n\s*"/g, '",\n"')
+    // Remove any markdown code fence artifacts
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    // Fix single quotes to double quotes
+    .replace(/'/g, '"')
+    // Remove any control characters
+    .replace(/[\x00-\x1F\x7F]/g, '');
 
   try {
     const parsed = JSON.parse(jsonString);
@@ -67,6 +81,25 @@ const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] 
     }
   } catch (error) {
     console.error("Failed to parse extracted JSON string.", { jsonString, error });
+
+    // Try one more time with aggressive cleanup
+    try {
+      // More aggressive: try to fix common structural issues
+      let fixedJson = jsonString
+        // Ensure proper spacing around colons
+        .replace(/:\s*/g, ': ')
+        // Ensure proper spacing after commas
+        .replace(/,\s*/g, ', ');
+
+      const retryParsed = JSON.parse(fixedJson);
+      if (Array.isArray(retryParsed)) {
+        console.log("✓ Successfully parsed JSON after cleanup");
+        return retryParsed;
+      }
+    } catch (retryError) {
+      // If retry also fails, throw original error
+    }
+
     if (error instanceof Error) {
         throw new Error(`The AI returned a malformed JSON array: ${error.message}`);
     }
@@ -113,7 +146,14 @@ Follow this mandatory process:
     *   \`tags\`: An array of 3-5 relevant keywords taken directly from the clip's content.
     *   \`startTime\` & \`endTime\`: These MUST be precise timestamps marking the beginning and end of the identified segment. The total duration between these timestamps must adhere to the 1-10 minute rule.
 
-5.  **FINAL OUTPUT:** Your entire response must be ONLY a single, valid JSON array of these clip objects. Do not include any other text, explanations, or markdown. Your response must start with \`[\` and end with \`]\`.`;
+5.  **FINAL OUTPUT:** Your entire response must be ONLY a single, valid JSON array of these clip objects. Do not include any other text, explanations, or markdown. Your response must start with \`[\` and end with \`]\`.
+
+**JSON FORMATTING RULES:**
+- Use double quotes for all strings, never single quotes
+- Ensure all properties are separated by commas
+- Do NOT put trailing commas before closing braces
+- Ensure all JSON is syntactically valid and can be parsed
+- Output ONLY the JSON array, no other text before or after`;
 }
 
 
