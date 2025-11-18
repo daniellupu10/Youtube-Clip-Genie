@@ -21,6 +21,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Video ID is required' });
   }
 
+  // Check if TRANSCRIPT_API_KEY is available
+  const transcriptApiKey = process.env.TRANSCRIPT_API_KEY;
+  console.log('TRANSCRIPT_API_KEY check:', transcriptApiKey ? `Available (${transcriptApiKey.substring(0, 10)}...)` : 'MISSING!');
+
   try {
     const errors: string[] = [];
 
@@ -32,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-RapidAPI-Key': process.env.TRANSCRIPT_API_KEY || '',
+          'X-RapidAPI-Key': transcriptApiKey || '',
           'X-RapidAPI-Host': 'youtube-transcript3.p.rapidapi.com'
         },
         body: JSON.stringify({ video_id: videoId, lang: 'en' })
@@ -72,9 +76,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const response = await fetch(source.url, fetchOptions);
 
+        console.log(`${source.name} HTTP status:`, response.status);
+
         if (response.ok) {
           const data = await response.json();
-          console.log(`${source.name} response:`, data);
+          console.log(`${source.name} response:`, JSON.stringify(data).substring(0, 200));
 
           // Normalize the data format
           let transcript;
@@ -112,7 +118,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(200).json({ transcript: segments });
           }
         } else {
-          errors.push(`${source.name}: HTTP ${response.status}`);
+          // Log the error response body
+          const errorText = await response.text();
+          console.error(`${source.name} failed with ${response.status}:`, errorText);
+          errors.push(`${source.name}: HTTP ${response.status} - ${errorText.substring(0, 100)}`);
         }
       } catch (e: any) {
         errors.push(`${source.name}: ${e.message}`);
