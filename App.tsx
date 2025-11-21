@@ -1,4 +1,4 @@
-
+// ← SUPABASE: Full integration - loads and saves clips from Supabase database
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -11,7 +11,7 @@ import { useAuth } from './contexts/AuthContext';
 import AuthModal from './components/AuthModal';
 import PricingModal from './components/PricingModal';
 import { PLAN_LIMITS } from './contexts/AuthContext';
-import { getClips, saveClips } from './services/clipService';
+import { getClips, saveClips, saveUserVideo } from './services/clipService';
 
 
 const Toast: React.FC<{ message: string; onDismiss: () => void }> = ({ message, onDismiss }) => {
@@ -46,18 +46,27 @@ const App: React.FC = () => {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState<string>('The Genie is working its magic...');
 
-  const { user, recordUsage } = useAuth();
+  const { user, loading: authLoading, recordUsage } = useAuth();
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isPricingModalOpen, setPricingModalOpen] = useState(false);
-  
+
+  // ← SUPABASE: Load user's clips from database when logged in
   useEffect(() => {
-    if (user.loggedIn) {
-        const savedClips = getClips(user.email);
-        setClips(savedClips);
-    } else {
+    const loadClipsFromDatabase = async () => {
+      if (user.loggedIn && !authLoading) {
+        try {
+          const userClips = await getClips();
+          setClips(userClips);
+        } catch (error) {
+          console.error('Error loading clips:', error);
+        }
+      } else {
         setClips([]); // Clear clips on logout
-    }
-  }, [user.loggedIn, user.email]);
+      }
+    };
+
+    loadClipsFromDatabase();
+  }, [user.loggedIn, authLoading]);
 
   const handleUrlChange = useCallback((url: string) => {
     const videoId = getYoutubeVideoId(url);
@@ -81,7 +90,7 @@ const App: React.FC = () => {
     }
     setIsLoading(true);
     setError(null);
-    
+
     let transcriptSegments: TranscriptSegment[] = [];
 
     try {
@@ -89,7 +98,7 @@ const App: React.FC = () => {
       setLoadingMessage("Fetching video transcript...");
       const { transcript, duration } = await getTranscriptAndDuration(url);
       transcriptSegments = transcript;
-      
+
       const videoMinutes = Math.ceil(duration / 60);
 
       // Step 1.5: Validate against plan limits
@@ -102,7 +111,7 @@ const App: React.FC = () => {
         limit = PLAN_LIMITS.casual.videoDuration;
         durationLimitExceeded = videoMinutes > limit;
       }
-      
+
       if (durationLimitExceeded) {
           setError(`Your plan is limited to videos under ${limit} minutes. This video is ${videoMinutes} minutes long.`);
           setPricingModalOpen(true);
@@ -110,18 +119,43 @@ const App: React.FC = () => {
           return;
       }
 
-      // Step 2: Format transcript for Gemini
+      // ← SUPABASE: Step 2: Save video metadata to database
+      setLoadingMessage("Saving video metadata...");
+      const userVideoId = await saveUserVideo(
+        url,
+        currentVideoId,
+        undefined, // video title (optional, can fetch from YouTube API)
+        duration,
+        thumbnailUrl || undefined
+      );
+
+      if (!userVideoId) {
+        throw new Error('Failed to save video metadata');
+      }
+
+      // Step 3: Format transcript for Gemini
       const fullTranscriptText = transcriptSegments.map(segment => segment.text).join(' ');
 
-      // Step 3: Generate clips from transcript
+      // Step 4: Generate clips from transcript
       setLoadingMessage("Analyzing transcript & generating clips...");
       const generatedClips = await generateClipsFromTranscript(fullTranscriptText, transcriptSegments, user.plan);
 
-      // Step 4: Record usage and set state
-      recordUsage(videoMinutes);
+      // ← SUPABASE: Step 5: Save clips to database
+      setLoadingMessage("Saving clips to your account...");
       const clipsWithId = generatedClips.map(clip => ({ ...clip, videoId: currentVideoId }));
-      saveClips(clipsWithId, user.email);
-      setClips(getClips(user.email)); // Reload all clips from storage
+      const saveSuccess = await saveClips(userVideoId, clipsWithId);
+
+      if (!saveSuccess) {
+        console.error('Failed to save clips to database');
+        setError('Clips generated but failed to save. Please try again.');
+      }
+
+      // Step 6: Record usage and reload clips
+      await recordUsage(videoMinutes);
+      const updatedClips = await getClips();
+      setClips(updatedClips);
+
+      setToastMessage(`Successfully generated ${clipsWithId.length} clips!`);
 
     } catch (e) {
       if (e instanceof Error) {
@@ -133,16 +167,26 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
-  
+
   const showToast = (message: string) => {
     setToastMessage(message);
   };
-  
+
   const dismissToast = () => {
     setToastMessage(null);
   };
 
   const mainContent = () => {
+    // Show loading during auth check
+    if (authLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center space-y-4 my-16">
+          <div className="w-16 h-16 border-4 border-cyan-400 border-dashed rounded-full animate-spin"></div>
+          <p className="text-slate-400 text-lg">Loading...</p>
+        </div>
+      );
+    }
+
     if (!user.loggedIn && !isLoading) {
       return (
         <div className="text-center text-slate-400 mt-16 bg-slate-800/30 rounded-lg p-10 max-w-2xl mx-auto border border-slate-700">
@@ -157,16 +201,16 @@ const App: React.FC = () => {
         </div>
       );
     }
-    
+
     // Case 1: Loading
     if (isLoading) {
       return (
         <div className="max-w-2xl mx-auto">
           {thumbnailUrl ? (
             <div className="relative rounded-lg overflow-hidden shadow-lg">
-              <img 
-                src={thumbnailUrl} 
-                alt="YouTube video thumbnail" 
+              <img
+                src={thumbnailUrl}
+                alt="YouTube video thumbnail"
                 className="w-full opacity-30 transition-opacity duration-300"
               />
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 p-4">
@@ -228,7 +272,7 @@ const App: React.FC = () => {
             The Genie will analyze your video and extract key segments between 1 and 10 minutes long.
           </p>
         </div>
-        
+
         <div className="mt-8">
           {mainContent()}
         </div>
