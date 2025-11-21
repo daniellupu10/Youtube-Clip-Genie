@@ -1,7 +1,6 @@
-// ← FIXED AUTH FOREVER + CLIP GENIE PERSONALITY INJECTED → NOW MAGICAL AND UNBREAKABLE
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase project credentials - CORRECTED ANON KEY (was broken before!)
+// Supabase project credentials
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://cnxnxfgbfjqakvclcvmn.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNueG54ZmdiZmpxYWt2Y2xjdm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4MTYwNjgsImV4cCI6MjA3ODM5MjA2OH0.8lle8F9krxM-3MgS-_ZrT-1H5a8OTsIjCMmak-lhafU';
 
@@ -12,10 +11,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     // Persist auth session in localStorage
     persistSession: true,
-    // Detect session changes in other tabs (for OAuth redirects)
+    // Detect session changes in other tabs
     detectSessionInUrl: true,
-    // Flow type for OAuth (PKCE is more secure for SPAs)
-    flowType: 'pkce',
   },
 });
 
@@ -45,7 +42,7 @@ export interface ClipRow {
 export const getCurrentUser = async () => {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error) {
-    console.error('The Genie failed to identify you:', error);
+    console.error('Error getting current user:', error);
     return null;
   }
   return user;
@@ -57,47 +54,47 @@ export const isAuthenticated = async () => {
   return !!user;
 };
 
-// ← CLIP GENIE ERROR MESSAGES → Make auth failures funny and on-brand
-export const CLIP_GENIE_ERRORS: Record<string, string> = {
-  'Invalid login credentials': "❌ Nice try, mortal. Wrong password or email. The Genie doesn't grant wishes to liars.",
-  'Email not confirmed': "📧 You didn't click the magic link? Rookie mistake. Check your spam — even genies end up there sometimes.",
-  'Invalid API key': "🔥 Whoa there, cowboy. The Genie's lamp is offline. Refresh or blame the developer (it's probably his fault).",
-  'User already registered': "👻 You already rubbed the lamp before! Log in instead of trying to summon me twice.",
-  'Password should be at least 6 characters': "🔐 Your password is weaker than a wet noodle. Try at least 6 characters, champ.",
-  'Signup requires a valid password': "🤦 You forgot the password? That's like wishing without rubbing the lamp. Try again.",
-  'validation_failed': "⚠️ You broke the sacred rules of lamp-rubbing. Try again without being weird.",
-  'Email link is invalid or has expired': "⏰ That magic link expired faster than your ex's promises. Request a new one.",
-  'User not found': "👤 Who dis? The Genie has never seen you before. Maybe sign up first?",
-  'Invalid email': "📧 That's not an email, that's alphabet soup. Try again.",
-  'Auth session missing': "🔓 You're not logged in. Rub the lamp first (aka: hit that login button).",
-  'default': "💥 Something exploded in the lamp. The Genie is napping. Try again in 5 seconds... or blame Mercury retrograde."
+// Professional error messages
+const ERROR_MESSAGES: Record<string, string> = {
+  'Invalid login credentials': 'Invalid email or password. Please try again.',
+  'Email not confirmed': 'Please confirm your email address. Check your inbox for the confirmation link.',
+  'Invalid API key': 'Authentication service unavailable. Please refresh the page.',
+  'User already registered': 'This email is already registered. Please log in instead.',
+  'Password should be at least 6 characters': 'Password must be at least 6 characters long.',
+  'Signup requires a valid password': 'Please provide a valid password.',
+  'validation_failed': 'Validation failed. Please check your input.',
+  'Email link is invalid or has expired': 'This link has expired. Please request a new one.',
+  'User not found': 'No account found with this email address.',
+  'Invalid email': 'Please enter a valid email address.',
+  'Auth session missing': 'You are not logged in. Please log in to continue.',
+  'default': 'An error occurred. Please try again.'
 };
 
-// Helper function to translate boring errors into Genie speak
-export const translateToGenieSpeak = (errorMessage: string | undefined): string => {
-  if (!errorMessage) return CLIP_GENIE_ERRORS.default;
+// Helper function to translate errors to user-friendly messages
+export const getUserFriendlyError = (errorMessage: string | undefined): string => {
+  if (!errorMessage) return ERROR_MESSAGES.default;
 
   // Check for exact match
-  if (CLIP_GENIE_ERRORS[errorMessage]) {
-    return CLIP_GENIE_ERRORS[errorMessage];
+  if (ERROR_MESSAGES[errorMessage]) {
+    return ERROR_MESSAGES[errorMessage];
   }
 
   // Check for partial matches
   if (errorMessage.toLowerCase().includes('password')) {
-    return CLIP_GENIE_ERRORS['Password should be at least 6 characters'];
+    return ERROR_MESSAGES['Password should be at least 6 characters'];
   }
   if (errorMessage.toLowerCase().includes('email')) {
     if (errorMessage.toLowerCase().includes('confirm')) {
-      return CLIP_GENIE_ERRORS['Email not confirmed'];
+      return ERROR_MESSAGES['Email not confirmed'];
     }
-    return CLIP_GENIE_ERRORS['Invalid email'];
+    return ERROR_MESSAGES['Invalid email'];
   }
   if (errorMessage.toLowerCase().includes('credential')) {
-    return CLIP_GENIE_ERRORS['Invalid login credentials'];
+    return ERROR_MESSAGES['Invalid login credentials'];
   }
   if (errorMessage.toLowerCase().includes('already')) {
-    return CLIP_GENIE_ERRORS['User already registered'];
+    return ERROR_MESSAGES['User already registered'];
   }
 
-  return CLIP_GENIE_ERRORS.default;
+  return ERROR_MESSAGES.default;
 };
