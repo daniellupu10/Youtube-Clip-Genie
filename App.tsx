@@ -59,6 +59,10 @@ const App: React.FC = () => {
           setClips(userClips);
         } catch (error) {
           console.error('Error loading clips:', error);
+          // Gracefully handle missing database - user can still generate new clips
+          console.warn('Could not load clips from database. Database tables may not be set up yet.');
+          console.warn('See MUST_RUN_FIRST.md for setup instructions.');
+          setClips([]); // Start with empty clips, but app still works
         }
       } else {
         setClips([]); // Clear clips on logout
@@ -92,6 +96,7 @@ const App: React.FC = () => {
     setError(null);
 
     let transcriptSegments: TranscriptSegment[] = [];
+    let databaseAvailable = true;
 
     try {
       // Step 1: Get transcript and duration
@@ -119,43 +124,84 @@ const App: React.FC = () => {
           return;
       }
 
-      // ← SUPABASE: Step 2: Save video metadata to database
-      setLoadingMessage("Saving video metadata...");
-      const userVideoId = await saveUserVideo(
-        url,
-        currentVideoId,
-        undefined, // video title (optional, can fetch from YouTube API)
-        duration,
-        thumbnailUrl || undefined
-      );
+      // ← SUPABASE: Step 2: Save video metadata to database (graceful failure)
+      let userVideoId: string | null = null;
+      try {
+        setLoadingMessage("Saving video metadata...");
+        userVideoId = await saveUserVideo(
+          url,
+          currentVideoId,
+          undefined, // video title (optional, can fetch from YouTube API)
+          duration,
+          thumbnailUrl || undefined
+        );
 
-      if (!userVideoId) {
-        throw new Error('Failed to save video metadata');
+        if (!userVideoId) {
+          console.warn('Database tables not set up yet. See MUST_RUN_FIRST.md');
+          databaseAvailable = false;
+        }
+      } catch (dbError) {
+        console.error('Database error (tables may not exist):', dbError);
+        console.warn('Continuing without database persistence. See MUST_RUN_FIRST.md');
+        databaseAvailable = false;
       }
 
       // Step 3: Format transcript for Gemini
       const fullTranscriptText = transcriptSegments.map(segment => segment.text).join(' ');
 
-      // Step 4: Generate clips from transcript
+      // Step 4: Generate clips from transcript (ALWAYS runs regardless of database)
       setLoadingMessage("Analyzing transcript & generating clips...");
       const generatedClips = await generateClipsFromTranscript(fullTranscriptText, transcriptSegments, user.plan);
-
-      // ← SUPABASE: Step 5: Save clips to database
-      setLoadingMessage("Saving clips to your account...");
       const clipsWithId = generatedClips.map(clip => ({ ...clip, videoId: currentVideoId }));
-      const saveSuccess = await saveClips(userVideoId, clipsWithId);
 
-      if (!saveSuccess) {
-        console.error('Failed to save clips to database');
-        setError('Clips generated but failed to save. Please try again.');
+      // ← SUPABASE: Step 5: Save clips to database (graceful failure)
+      if (databaseAvailable && userVideoId) {
+        try {
+          setLoadingMessage("Saving clips to your account...");
+          const saveSuccess = await saveClips(userVideoId, clipsWithId);
+
+          if (!saveSuccess) {
+            console.warn('Failed to save clips to database');
+            databaseAvailable = false;
+          }
+        } catch (dbError) {
+          console.error('Error saving clips:', dbError);
+          databaseAvailable = false;
+        }
       }
 
-      // Step 6: Record usage and reload clips
-      await recordUsage(videoMinutes);
-      const updatedClips = await getClips();
-      setClips(updatedClips);
+      // Step 6: Record usage (graceful failure)
+      if (databaseAvailable) {
+        try {
+          await recordUsage(videoMinutes);
+        } catch (usageError) {
+          console.error('Error recording usage:', usageError);
+        }
+      }
 
-      setToastMessage(`Successfully generated ${clipsWithId.length} clips!`);
+      // Step 7: Display clips (either from database or locally generated)
+      if (databaseAvailable) {
+        try {
+          const updatedClips = await getClips();
+          setClips(updatedClips);
+        } catch (dbError) {
+          console.error('Error loading clips from database:', dbError);
+          // Fallback: display locally generated clips
+          setClips(clipsWithId);
+        }
+      } else {
+        // Database not available - display locally generated clips
+        setClips(clipsWithId);
+      }
+
+      // Show appropriate success/warning message
+      if (databaseAvailable) {
+        setToastMessage(`Successfully generated ${clipsWithId.length} clips!`);
+      } else {
+        setToastMessage(`Generated ${clipsWithId.length} clips (not saved - database setup required)`);
+        console.warn('⚠️ IMPORTANT: Clips generated but NOT saved to database.');
+        console.warn('⚠️ Run the SQL schema in Supabase. See MUST_RUN_FIRST.md for instructions.');
+      }
 
     } catch (e) {
       if (e instanceof Error) {
