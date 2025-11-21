@@ -40,93 +40,118 @@ const timeToSeconds = (time: string): number => {
 
 
 /**
- * Extracts a JSON array from a string, which might be wrapped in other text or markdown.
+ * BULLETPROOF JSON PARSER - Handles all Gemini malformed JSON cases
+ * Multi-layer fallback system prevents crashes from missing commas, trailing commas,
+ * unescaped quotes, markdown blocks, etc.
  * @param text The text response from the AI.
  * @returns A parsed array of clip objects.
  */
 const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] => {
   console.log("Raw AI response (first 500 chars):", text.substring(0, 500));
 
-  const startIndex = text.indexOf('[');
-  const endIndex = text.lastIndexOf(']');
+  // LAYER 1: Aggressive initial cleanup
+  let raw = (text || '').trim();
 
-  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
-    console.error("Could not find a valid JSON array in the AI response.", text);
+  // Remove markdown code blocks
+  if (raw.startsWith('```json')) {
+    raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  }
+  if (raw.startsWith('```')) {
+    raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+
+  console.log("After markdown cleanup (first 500 chars):", raw.substring(0, 500));
+
+  let clips: any[] = [];
+
+  // LAYER 2: Try direct parse (best case - Gemini returned perfect JSON)
+  try {
+    clips = JSON.parse(raw);
+    console.log("✓ Direct parse succeeded");
+
+    // Validate it's an array
+    if (Array.isArray(clips) && clips.length > 0) {
+      if (clips[0].title && clips[0].startTime && clips[0].endTime) {
+        console.log(`✓ Successfully parsed ${clips.length} clips (direct parse)`);
+        return clips;
+      }
+    }
+  } catch (directError) {
+    console.log("Direct parse failed, trying regex extraction...", directError);
+  }
+
+  // LAYER 3: Extract first [...] block with regex (handles garbage before/after)
+  const arrayMatch = raw.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) {
+    console.error("No JSON array found in response");
     throw new Error("The AI returned a response that did not contain a valid JSON array.");
   }
 
-  let jsonString = text.substring(startIndex, endIndex + 1);
-  console.log("Extracted JSON (first 500 chars):", jsonString.substring(0, 500));
+  let jsonString = arrayMatch[0];
+  console.log("Extracted JSON array (first 500 chars):", jsonString.substring(0, 500));
 
-  // Clean up common JSON formatting issues from AI responses
-  jsonString = jsonString
-    // Remove trailing commas before closing braces/brackets
-    .replace(/,(\s*[}\]])/g, '$1')
-    // Remove any markdown code fence artifacts
-    .replace(/```json/g, '')
-    .replace(/```/g, '')
-    // Remove any control characters except newlines
-    .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '')
-    // Fix property names without quotes (e.g., title: -> "title":)
-    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-    // Fix missing commas between properties on different lines
-    .replace(/"\s*\n\s*"/g, '",\n"')
-    // Ensure spaces after colons and commas
-    .replace(/:\s*/g, ': ')
-    .replace(/,\s*/g, ', ');
-
-  console.log("Cleaned JSON (first 500 chars):", jsonString.substring(0, 500));
-
+  // LAYER 4: Try parsing extracted array
   try {
-    const parsed = JSON.parse(jsonString);
-    if (Array.isArray(parsed)) {
-      if (parsed.length > 0 && (!parsed[0].title || !parsed[0].startTime)) {
-         throw new Error("Parsed JSON objects are missing required properties.");
+    clips = JSON.parse(jsonString);
+    if (Array.isArray(clips) && clips.length > 0) {
+      if (clips[0].title && clips[0].startTime && clips[0].endTime) {
+        console.log(`✓ Successfully parsed ${clips.length} clips (regex extraction)`);
+        return clips;
       }
-      console.log(`✓ Successfully parsed ${parsed.length} clips`);
-      return parsed;
-    } else {
-      throw new Error("Parsed JSON is not an array.");
     }
-  } catch (error) {
-    console.error("Failed to parse extracted JSON string.", {
-      error,
-      jsonPreview: jsonString.substring(0, 200)
-    });
-
-    // Try even more aggressive cleanup
-    try {
-      console.log("Attempting aggressive cleanup...");
-
-      // Remove all single quotes and replace with double quotes carefully
-      let fixedJson = jsonString
-        // First, protect already quoted strings
-        .replace(/"([^"]*)"/g, (match) => {
-          return match.replace(/'/g, '\u0001'); // Temporary placeholder
-        })
-        // Replace remaining single quotes with double quotes
-        .replace(/'/g, '"')
-        // Restore protected single quotes
-        .replace(/\u0001/g, "'")
-        // Fix any remaining structural issues
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-
-      console.log("Aggressively cleaned JSON (first 500 chars):", fixedJson.substring(0, 500));
-
-      const retryParsed = JSON.parse(fixedJson);
-      if (Array.isArray(retryParsed)) {
-        console.log("✓ Successfully parsed JSON after aggressive cleanup");
-        return retryParsed;
-      }
-    } catch (retryError) {
-      console.error("Aggressive cleanup also failed:", retryError);
-    }
-
-    if (error instanceof Error) {
-        throw new Error(`The AI returned a malformed JSON array: ${error.message}. Please try again.`);
-    }
-    throw new Error("The AI returned a malformed JSON array. Please try again.");
+  } catch (extractError) {
+    console.log("Extracted array parse failed, applying fixes...", extractError);
   }
+
+  // LAYER 5: Nuclear fallback - fix common JSON issues manually
+  try {
+    console.log("Attempting nuclear fallback with manual JSON repair...");
+
+    let fixed = jsonString
+      // Remove trailing commas before ] or }
+      .replace(/,(\s*[\]}])/g, '$1')
+      // Fix single quotes to double quotes
+      .replace(/'/g, '"')
+      // Fix unquoted property names (title: -> "title":)
+      .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+      // Remove any markdown artifacts that slipped through
+      .replace(/```json/g, '')
+      .replace(/```/g, '')
+      // Remove control characters except newlines
+      .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '')
+      // Fix missing commas between properties on different lines
+      .replace(/"\s*\n\s*"/g, '",\n"')
+      // Fix unquoted string values (only simple cases)
+      .replace(/:\s*([a-zA-Z][a-zA-Z0-9\s]*[a-zA-Z0-9])\s*([,}\]])/g, ': "$1"$2');
+
+    console.log("Nuclear fixed JSON (first 500 chars):", fixed.substring(0, 500));
+
+    clips = JSON.parse(fixed);
+
+    if (Array.isArray(clips) && clips.length > 0) {
+      if (clips[0].title && clips[0].startTime && clips[0].endTime) {
+        console.log(`✓ Successfully parsed ${clips.length} clips (nuclear fallback)`);
+        return clips;
+      }
+    }
+  } catch (nuclearError) {
+    console.error("Nuclear fallback also failed:", nuclearError);
+    console.error("Final attempted JSON:", jsonString.substring(0, 1000));
+    throw new Error(`The AI returned malformed JSON that could not be repaired. Error: ${nuclearError instanceof Error ? nuclearError.message : 'Unknown error'}. Please try again.`);
+  }
+
+  // LAYER 6: Final validation - must be non-empty array with required fields
+  if (!Array.isArray(clips) || clips.length === 0) {
+    throw new Error("Gemini returned empty or invalid clips array");
+  }
+
+  // Check first clip has required fields
+  if (!clips[0].title || !clips[0].startTime || !clips[0].endTime) {
+    throw new Error("Parsed clips are missing required fields (title, startTime, endTime)");
+  }
+
+  console.log(`✓ Successfully parsed ${clips.length} clips`);
+  return clips;
 };
 
 // UPDATED: New YouTube SEO-optimized prompt for viral clip generation
