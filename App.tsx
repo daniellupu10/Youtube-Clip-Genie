@@ -50,7 +50,21 @@ const App: React.FC = () => {
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isPricingModalOpen, setPricingModalOpen] = useState(false);
 
-  // ← SUPABASE: Load user's clips from database when logged in
+  // Check for Gemini API key on mount
+  useEffect(() => {
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!geminiKey || geminiKey === 'undefined' || geminiKey === 'null') {
+      console.error('⚠️ GEMINI_API_KEY is not configured!');
+      console.error('📝 To fix this:');
+      console.error('   1. Create a .env file in the project root');
+      console.error('   2. Add: GEMINI_API_KEY=your_actual_api_key');
+      console.error('   3. Get your key from: https://makersuite.google.com/app/apikey');
+      console.error('   4. Restart the dev server');
+    } else {
+      console.log('✅ Gemini API key detected');
+    }
+  }, []);
+  
   useEffect(() => {
     const loadClipsFromDatabase = async () => {
       if (user.loggedIn && !authLoading) {

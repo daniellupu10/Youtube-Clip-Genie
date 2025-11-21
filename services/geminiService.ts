@@ -11,14 +11,19 @@ const getGeminiClient = () => {
     // Check for GEMINI_API_KEY first (Vercel), then fallback to API_KEY
     const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 
-    if (!apiKey) {
-        console.error("GEMINI API_KEY is missing! Please check your Vercel environment variables.");
-        throw new Error("GEMINI_API_KEY environment variable is not set. Please configure it in Vercel environment variables.");
+    console.log("🔑 Checking for Gemini API key...");
+    console.log("  - GEMINI_API_KEY exists:", !!process.env.GEMINI_API_KEY);
+    console.log("  - API_KEY exists:", !!process.env.API_KEY);
+
+    if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+        const errorMessage = "❌ GEMINI API KEY IS MISSING!\n\nTo fix this:\n1. Create a .env file in the project root\n2. Add: GEMINI_API_KEY=your_actual_api_key\n3. Get your key from: https://makersuite.google.com/app/apikey\n4. Restart the dev server\n\nFor Vercel deployment, add GEMINI_API_KEY to your environment variables.";
+        console.error(errorMessage);
+        throw new Error("GEMINI_API_KEY is not configured. Please create a .env file with your Gemini API key. Get one at https://makersuite.google.com/app/apikey");
     }
 
     if (!ai) {
-        // SECURITY: Never log API keys - only log confirmation
-        console.log("✅ Gemini API initialized successfully");
+        // SECURITY: Never log full API keys - only log confirmation
+        console.log("✅ Gemini API initialized successfully (key starts with:", apiKey.substring(0, 10) + "...)");
         ai = new GoogleGenAI({ apiKey });
     }
 
@@ -190,11 +195,20 @@ Follow this mandatory process:
 
 
 export const generateClipsFromTranscript = async (transcript: string, transcriptSegments: TranscriptSegment[], plan: UserPlan): Promise<Omit<Clip, 'videoId'>[]> => {
+  console.log("🎬 Starting clip generation...");
+  console.log("  - Transcript length:", transcript.length, "chars");
+  console.log("  - Transcript segments:", transcriptSegments.length);
+  console.log("  - User plan:", plan);
+
   const systemInstruction = getSystemInstruction(plan);
 
   const prompt = `Analyze the following YouTube video transcript and generate the highlight clips as a JSON array:\n\nTRANSCRIPT:\n"""\n${transcript}\n"""`;
 
+  console.log("  - Prompt length:", prompt.length, "chars");
+
   try {
+    console.log("📡 Calling Gemini API (model: gemini-2.5-flash)...");
+
     const response = await getGeminiClient().models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
@@ -203,7 +217,13 @@ export const generateClipsFromTranscript = async (transcript: string, transcript
       },
     });
 
+    console.log("✅ Received response from Gemini API");
+    console.log("  - Response type:", typeof response.text);
+    console.log("  - Response length:", response.text?.length || 0, "chars");
+
     const clipsFromAi = extractJsonArray(response.text);
+
+    console.log("✅ Successfully extracted", clipsFromAi.length, "clips from Gemini response");
 
     const clipsWithTranscripts = clipsFromAi.map(clip => {
         const startSeconds = timeToSeconds(clip.startTime);
@@ -224,11 +244,17 @@ export const generateClipsFromTranscript = async (transcript: string, transcript
         return { ...clip, transcript: transcriptText || "Transcript for this segment could not be found." };
     });
 
+    console.log("✅ Added transcript text to all", clipsWithTranscripts.length, "clips");
+    console.log("🎉 Clip generation complete!");
 
     return clipsWithTranscripts;
 
   } catch (error) {
-    console.error("Error generating clips:", error);
+    console.error("❌ ERROR generating clips:", error);
+    console.error("  - Error type:", error?.constructor?.name);
+    console.error("  - Error message:", error instanceof Error ? error.message : String(error));
+    console.error("  - Full error:", error);
+
     if (error instanceof Error) {
         throw new Error(`Failed to generate clips from Gemini API: ${error.message}`);
     }
