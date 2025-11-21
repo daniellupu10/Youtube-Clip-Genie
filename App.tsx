@@ -1,4 +1,4 @@
-
+// ← SUPABASE: Full integration - loads and saves clips from Supabase database
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -11,7 +11,7 @@ import { useAuth } from './contexts/AuthContext';
 import AuthModal from './components/AuthModal';
 import PricingModal from './components/PricingModal';
 import { PLAN_LIMITS } from './contexts/AuthContext';
-import { getClips, saveClips } from './services/clipService';
+import { getClips, saveClips, saveUserVideo } from './services/clipService';
 
 
 const Toast: React.FC<{ message: string; onDismiss: () => void }> = ({ message, onDismiss }) => {
@@ -46,7 +46,7 @@ const App: React.FC = () => {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState<string>('The Genie is working its magic...');
 
-  const { user, recordUsage } = useAuth();
+  const { user, loading: authLoading, recordUsage } = useAuth();
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isPricingModalOpen, setPricingModalOpen] = useState(false);
 
@@ -66,13 +66,25 @@ const App: React.FC = () => {
   }, []);
   
   useEffect(() => {
-    if (user.loggedIn) {
-        const savedClips = getClips(user.email);
-        setClips(savedClips);
-    } else {
+    const loadClipsFromDatabase = async () => {
+      if (user.loggedIn && !authLoading) {
+        try {
+          const userClips = await getClips();
+          setClips(userClips);
+        } catch (error) {
+          console.error('Error loading clips:', error);
+          // Gracefully handle missing database - user can still generate new clips
+          console.warn('Could not load clips from database. Database tables may not be set up yet.');
+          console.warn('See MUST_RUN_FIRST.md for setup instructions.');
+          setClips([]); // Start with empty clips, but app still works
+        }
+      } else {
         setClips([]); // Clear clips on logout
-    }
-  }, [user.loggedIn, user.email]);
+      }
+    };
+
+    loadClipsFromDatabase();
+  }, [user.loggedIn, authLoading]);
 
   const handleUrlChange = useCallback((url: string) => {
     const videoId = getYoutubeVideoId(url);
@@ -96,15 +108,16 @@ const App: React.FC = () => {
     }
     setIsLoading(true);
     setError(null);
-    
+
     let transcriptSegments: TranscriptSegment[] = [];
+    let databaseAvailable = true;
 
     try {
       // Step 1: Get transcript and duration
       setLoadingMessage("Fetching video transcript...");
       const { transcript, duration } = await getTranscriptAndDuration(url);
       transcriptSegments = transcript;
-      
+
       const videoMinutes = Math.ceil(duration / 60);
 
       // Step 1.5: Validate against plan limits
@@ -117,7 +130,7 @@ const App: React.FC = () => {
         limit = PLAN_LIMITS.casual.videoDuration;
         durationLimitExceeded = videoMinutes > limit;
       }
-      
+
       if (durationLimitExceeded) {
           setError(`Your plan is limited to videos under ${limit} minutes. This video is ${videoMinutes} minutes long.`);
           setPricingModalOpen(true);
@@ -125,18 +138,84 @@ const App: React.FC = () => {
           return;
       }
 
-      // Step 2: Format transcript for Gemini
+      // ← SUPABASE: Step 2: Save video metadata to database (graceful failure)
+      let userVideoId: string | null = null;
+      try {
+        setLoadingMessage("Saving video metadata...");
+        userVideoId = await saveUserVideo(
+          url,
+          currentVideoId,
+          undefined, // video title (optional, can fetch from YouTube API)
+          duration,
+          thumbnailUrl || undefined
+        );
+
+        if (!userVideoId) {
+          console.warn('Database tables not set up yet. See MUST_RUN_FIRST.md');
+          databaseAvailable = false;
+        }
+      } catch (dbError) {
+        console.error('Database error (tables may not exist):', dbError);
+        console.warn('Continuing without database persistence. See MUST_RUN_FIRST.md');
+        databaseAvailable = false;
+      }
+
+      // Step 3: Format transcript for Gemini
       const fullTranscriptText = transcriptSegments.map(segment => segment.text).join(' ');
 
-      // Step 3: Generate clips from transcript
+      // Step 4: Generate clips from transcript (ALWAYS runs regardless of database)
       setLoadingMessage("Analyzing transcript & generating clips...");
       const generatedClips = await generateClipsFromTranscript(fullTranscriptText, transcriptSegments, user.plan);
-
-      // Step 4: Record usage and set state
-      recordUsage(videoMinutes);
       const clipsWithId = generatedClips.map(clip => ({ ...clip, videoId: currentVideoId }));
-      saveClips(clipsWithId, user.email);
-      setClips(getClips(user.email)); // Reload all clips from storage
+
+      // ← SUPABASE: Step 5: Save clips to database (graceful failure)
+      if (databaseAvailable && userVideoId) {
+        try {
+          setLoadingMessage("Saving clips to your account...");
+          const saveSuccess = await saveClips(userVideoId, clipsWithId);
+
+          if (!saveSuccess) {
+            console.warn('Failed to save clips to database');
+            databaseAvailable = false;
+          }
+        } catch (dbError) {
+          console.error('Error saving clips:', dbError);
+          databaseAvailable = false;
+        }
+      }
+
+      // Step 6: Record usage (graceful failure)
+      if (databaseAvailable) {
+        try {
+          await recordUsage(videoMinutes);
+        } catch (usageError) {
+          console.error('Error recording usage:', usageError);
+        }
+      }
+
+      // Step 7: Display clips (either from database or locally generated)
+      if (databaseAvailable) {
+        try {
+          const updatedClips = await getClips();
+          setClips(updatedClips);
+        } catch (dbError) {
+          console.error('Error loading clips from database:', dbError);
+          // Fallback: display locally generated clips
+          setClips(clipsWithId);
+        }
+      } else {
+        // Database not available - display locally generated clips
+        setClips(clipsWithId);
+      }
+
+      // Show appropriate success/warning message
+      if (databaseAvailable) {
+        setToastMessage(`Successfully generated ${clipsWithId.length} clips!`);
+      } else {
+        setToastMessage(`Generated ${clipsWithId.length} clips (not saved - database setup required)`);
+        console.warn('⚠️ IMPORTANT: Clips generated but NOT saved to database.');
+        console.warn('⚠️ Run the SQL schema in Supabase. See MUST_RUN_FIRST.md for instructions.');
+      }
 
     } catch (e) {
       if (e instanceof Error) {
@@ -148,16 +227,26 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
-  
+
   const showToast = (message: string) => {
     setToastMessage(message);
   };
-  
+
   const dismissToast = () => {
     setToastMessage(null);
   };
 
   const mainContent = () => {
+    // Show loading during auth check
+    if (authLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center space-y-4 my-16">
+          <div className="w-16 h-16 border-4 border-cyan-400 border-dashed rounded-full animate-spin"></div>
+          <p className="text-slate-400 text-lg">Loading...</p>
+        </div>
+      );
+    }
+
     if (!user.loggedIn && !isLoading) {
       return (
         <div className="text-center text-slate-400 mt-16 bg-slate-800/30 rounded-lg p-10 max-w-2xl mx-auto border border-slate-700">
@@ -172,16 +261,16 @@ const App: React.FC = () => {
         </div>
       );
     }
-    
+
     // Case 1: Loading
     if (isLoading) {
       return (
         <div className="max-w-2xl mx-auto">
           {thumbnailUrl ? (
             <div className="relative rounded-lg overflow-hidden shadow-lg">
-              <img 
-                src={thumbnailUrl} 
-                alt="YouTube video thumbnail" 
+              <img
+                src={thumbnailUrl}
+                alt="YouTube video thumbnail"
                 className="w-full opacity-30 transition-opacity duration-300"
               />
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 p-4">
@@ -243,7 +332,7 @@ const App: React.FC = () => {
             The Genie will analyze your video and extract key segments between 1 and 10 minutes long.
           </p>
         </div>
-        
+
         <div className="mt-8">
           {mainContent()}
         </div>

@@ -9,29 +9,44 @@ interface AuthModalProps {
 const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const { login, signup } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+    setLoading(true);
+
     const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
-    
+
     try {
-        if (mode === 'login') {
-            login(email, password);
+      if (mode === 'login') {
+        const result = await login(email, password);
+        if (result.success) {
+          // Successfully logged in - close modal immediately
+          onClose();
         } else {
-            const name = formData.get('name') as string;
-            signup(name, email, password);
+          setError(result.error || 'Login failed. Please check your credentials.');
         }
-        onClose();
+      } else {
+        const name = formData.get('name') as string;
+        const result = await signup(name, email, password);
+        if (result.success) {
+          setSuccess('Account created successfully! Please check your email to confirm your account.');
+          // Close after showing success message
+          setTimeout(() => onClose(), 3000);
+        } else {
+          setError(result.error || 'Signup failed. Please try again.');
+        }
+      }
     } catch (err) {
-        if (err instanceof Error) {
-            setError(err.message);
-        } else {
-            setError('An unexpected error occurred.');
-        }
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -42,60 +57,80 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
           <XIcon className="w-6 h-6" />
         </button>
         <div className="p-8">
-            <div className="flex justify-center items-center gap-3 mb-6">
-                <YouTubeIcon className="w-8 h-auto" />
-                <h2 className="text-2xl font-bold text-white text-center">
-                    {mode === 'login' ? 'Welcome Back!' : 'Create Your Account'}
-                </h2>
-            </div>
-            <p className="text-center text-slate-400 mb-8">
-                {mode === 'login' ? 'Log in to continue to Clip Genie.' : 'Sign up to start generating clips.'}
-            </p>
+          <div className="flex justify-center items-center gap-3 mb-6">
+            <YouTubeIcon className="w-8 h-auto" />
+            <h2 className="text-2xl font-bold text-white text-center">
+              {mode === 'login' ? 'Welcome Back' : 'Create Your Account'}
+            </h2>
+          </div>
+          <p className="text-center text-slate-400 mb-8">
+            {mode === 'login'
+              ? 'Log in to continue to Clip Genie.'
+              : 'Sign up to start generating clips.'}
+          </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
-                 <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="name">Name</label>
-                    <input 
-                        type="text" 
-                        id="name"
-                        name="name"
-                        className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-cyan-500 focus:border-cyan-500"
-                        placeholder="Your Name"
-                        required
-                    />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="name">Name</label>
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-cyan-500 focus:border-cyan-500"
+                  placeholder="Your Name"
+                  required
+                  disabled={loading}
+                />
+              </div>
             )}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="email">Email</label>
-              <input 
-                type="email" 
+              <input
+                type="email"
                 id="email"
                 name="email"
                 className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="you@example.com"
                 required
+                disabled={loading}
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="password">Password</label>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 id="password"
                 name="password"
                 className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="••••••••"
                 required
+                disabled={loading}
+                minLength={6}
               />
+              {mode === 'signup' && (
+                <p className="text-xs text-slate-400 mt-1">Minimum 6 characters</p>
+              )}
             </div>
-            
-            {error && <p className="text-sm text-red-400 text-center">{error}</p>}
 
-            <button 
+            {error && (
+              <p className="text-sm text-center text-red-400">
+                {error}
+              </p>
+            )}
+
+            {success && (
+              <p className="text-sm text-center text-green-400">
+                {success}
+              </p>
+            )}
+
+            <button
               type="submit"
-              className="w-full px-8 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all duration-300 ease-in-out !mt-6"
+              disabled={loading}
+              className="w-full px-8 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all duration-300 ease-in-out !mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {mode === 'login' ? 'Login' : 'Create Account'}
+              {loading ? 'Please wait...' : mode === 'login' ? 'Login' : 'Create Account'}
             </button>
           </form>
 
@@ -105,8 +140,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
               onClick={() => {
                 setMode(mode === 'login' ? 'signup' : 'login');
                 setError(null);
+                setSuccess(null);
               }}
-              className="font-semibold text-cyan-400 hover:underline"
+              disabled={loading}
+              className="font-semibold text-cyan-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mode === 'login' ? 'Sign Up' : 'Login'}
             </button>

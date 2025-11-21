@@ -1,0 +1,49 @@
+{
+  "Comment": "IAM Role and Policies for Lambda Video Clipper",
+  "TrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Service": "lambda.amazonaws.com"
+        },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  },
+  "S3AccessPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowClipUpload",
+        "Effect": "Allow",
+        "Action": [
+          "s3:PutObject",
+          "s3:PutObjectAcl",
+          "s3:GetObject"
+        ],
+        "Resource": "arn:aws:s3:::youtube-clip-generator/clips/*"
+      }
+    ]
+  },
+  "AttachedPolicies": [
+    {
+      "PolicyName": "AWSLambdaBasicExecutionRole",
+      "PolicyArn": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+      "Description": "Provides CloudWatch Logs write permissions"
+    }
+  ],
+  "S3BucketPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "PublicReadClips",
+        "Effect": "Allow",
+        "Principal": "*",
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::youtube-clip-generator/clips/*"
+      }
+    ]
+  }
+}
