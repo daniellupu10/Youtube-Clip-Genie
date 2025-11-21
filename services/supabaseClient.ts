@@ -13,8 +13,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     // Detect session changes in other tabs
     detectSessionInUrl: true,
+    // Disable email confirmation for simpler signup flow
+    flowType: 'pkce',
   },
 });
+
+console.log('🔧 Supabase client initialized');
+console.log('   URL:', supabaseUrl);
+console.log('   Key configured:', !!supabaseAnonKey);
 
 // Database types (TypeScript interfaces for Supabase tables)
 export interface UserVideo {
