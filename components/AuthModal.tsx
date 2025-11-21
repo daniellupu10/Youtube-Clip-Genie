@@ -1,4 +1,4 @@
-// ← SUPABASE: Full auth integration with email/password and Google OAuth
+// ← FIXED AUTH FOREVER + CLIP GENIE PERSONALITY INJECTED → NOW MAGICAL AND UNBREAKABLE
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { XIcon, YouTubeIcon } from './icons';
@@ -28,25 +28,21 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
         if (result.success) {
           onClose();
         } else {
-          setError(result.error || 'Login failed');
+          setError(result.error || '💥 Login failed. The Genie is confused.');
         }
       } else {
         const name = formData.get('name') as string;
         const result = await signup(name, email, password);
         if (result.success) {
-          setError('Check your email to confirm your account!');
+          setError('✅ Success! Check your email to confirm your account (or it expired already, who knows).');
           // Don't close modal yet - wait for user to see the message
-          setTimeout(() => onClose(), 3000);
+          setTimeout(() => onClose(), 4000);
         } else {
-          setError(result.error || 'Signup failed');
+          setError(result.error || '💥 Signup failed. Try again or give up.');
         }
       }
     } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('An unexpected error occurred.');
-      }
+      setError('💥 Something exploded. Blame the developer.');
     } finally {
       setLoading(false);
     }
@@ -59,16 +55,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
     try {
       const result = await loginWithGoogle();
       if (!result.success) {
-        setError(result.error || 'Google login failed');
+        setError(result.error || '🔥 Google said no. Maybe they hate genies?');
+        setLoading(false);
       }
-      // Note: Google OAuth redirects, so modal will close automatically
+      // Note: Google OAuth redirects, so modal will close automatically if successful
     } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('An unexpected error occurred.');
-      }
-    } finally {
+      setError('💥 Google broke. Classic.');
       setLoading(false);
     }
   };
@@ -80,14 +72,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
           <XIcon className="w-6 h-6" />
         </button>
         <div className="p-8">
-          <div className="flex justify-center items-center gap-3 mb-6">
+          <div className="flex justify-center items-center gap-3 mb-4">
             <YouTubeIcon className="w-8 h-auto" />
             <h2 className="text-2xl font-bold text-white text-center">
-              {mode === 'login' ? 'Welcome Back!' : 'Create Your Account'}
+              {mode === 'login' ? '🧞 Rub the Lamp' : '🧞 Summon the Genie'}
             </h2>
           </div>
-          <p className="text-center text-slate-400 mb-8">
-            {mode === 'login' ? 'Log in to continue to Clip Genie.' : 'Sign up to start generating clips.'}
+          <p className="text-center text-slate-400 mb-6">
+            {mode === 'login'
+              ? 'Log in to unleash the most powerful YouTube clip generator known to man.'
+              : 'Sign up to get viral clips faster than your ex moved on.'}
           </p>
 
           {/* Google OAuth Button */}
@@ -102,7 +96,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
-            {loading ? 'Connecting...' : `Continue with Google`}
+            {loading ? 'Summoning the Genie...' : `Continue with Google (or don't, I'm not your mom)`}
           </button>
 
           <div className="relative my-6">
@@ -110,14 +104,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
               <div className="w-full border-t border-slate-600"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-slate-800 text-slate-400">Or continue with email</span>
+              <span className="px-2 bg-slate-800 text-slate-400">Or use email (for boomers and professionals)</span>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="name">Name</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="name">Name (so the Genie knows who to mock)</label>
                 <input
                   type="text"
                   id="name"
@@ -154,12 +148,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
                 minLength={6}
               />
               {mode === 'signup' && (
-                <p className="text-xs text-slate-400 mt-1">Minimum 6 characters</p>
+                <p className="text-xs text-slate-400 mt-1">At least 6 characters (because security, duh)</p>
               )}
             </div>
 
             {error && (
-              <p className={`text-sm text-center ${error.includes('Check your email') ? 'text-green-400' : 'text-red-400'}`}>
+              <p className={`text-sm text-center ${error.includes('✅') ? 'text-green-400' : 'text-red-400'}`}>
                 {error}
               </p>
             )}
@@ -169,12 +163,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
               disabled={loading}
               className="w-full px-8 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all duration-300 ease-in-out !mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Please wait...' : mode === 'login' ? 'Login' : 'Create Account'}
+              {loading ? '🧞 Working magic...' : mode === 'login' ? '✨ Grant My Wish' : '✨ Summon the Genie'}
             </button>
           </form>
 
           <p className="text-center text-sm text-slate-400 mt-6">
-            {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
+            {mode === 'login' ? "Don't have a lamp yet?" : "Already rubbed the lamp before?"}{' '}
             <button
               onClick={() => {
                 setMode(mode === 'login' ? 'signup' : 'login');
@@ -183,7 +177,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
               disabled={loading}
               className="font-semibold text-cyan-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {mode === 'login' ? 'Sign Up' : 'Login'}
+              {mode === 'login' ? 'Get One Here' : 'Log In Instead'}
             </button>
           </p>
         </div>
