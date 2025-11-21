@@ -40,118 +40,121 @@ const timeToSeconds = (time: string): number => {
 
 
 /**
- * BULLETPROOF JSON PARSER - Handles all Gemini malformed JSON cases
- * Multi-layer fallback system prevents crashes from missing commas, trailing commas,
- * unescaped quotes, markdown blocks, etc.
- * @param text The text response from the AI.
- * @returns A parsed array of clip objects.
+ * ULTIMATE UNBREAKABLE JSON EXTRACTOR - Handles ALL Gemini response formats
+ * Multi-array attempt system with ultra-aggressive cleaning
+ * This function NEVER gives up until all possibilities are exhausted
+ * @param rawResponse The raw response from Gemini API
+ * @returns A parsed array of clip objects
  */
-const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] => {
-  console.log("Raw AI response (first 500 chars):", text.substring(0, 500));
+const extractValidClipsArrayFromGemini = (rawResponse: any): Omit<Clip, 'videoId' | 'transcript'>[] => {
+  // Extract text from various response formats
+  let text = typeof rawResponse === 'string' ? rawResponse : rawResponse.text || rawResponse.content || '';
+  text = text.trim();
 
-  // LAYER 1: Aggressive initial cleanup
-  let raw = (text || '').trim();
+  console.log("🔍 Raw Gemini response (first 500 chars):", text.substring(0, 500));
 
-  // Remove markdown code blocks
-  if (raw.startsWith('```json')) {
-    raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  // STEP 1: Remove all markdown wrappers aggressively
+  text = text
+    .replace(/^```json\s*/g, '')
+    .replace(/^```\s*/g, '')
+    .replace(/\s*```$/g, '')
+    .replace(/```json/g, '')
+    .replace(/```/g, '');
+
+  console.log("📝 After markdown removal (first 500 chars):", text.substring(0, 500));
+
+  // STEP 2: Find ALL potential JSON arrays in the response (handles multiple attempts, explanatory text, etc.)
+  const arrayRegex = /\[[\s\S]*?\]/g;
+  const allMatches = text.match(arrayRegex);
+
+  if (!allMatches || allMatches.length === 0) {
+    console.error("❌ No JSON arrays found in response");
+    throw new Error("No JSON array found in Gemini response - please try again");
   }
-  if (raw.startsWith('```')) {
-    raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  }
 
-  console.log("After markdown cleanup (first 500 chars):", raw.substring(0, 500));
+  console.log(`📊 Found ${allMatches.length} potential JSON array(s) in response`);
 
-  let clips: any[] = [];
+  // STEP 3: Sort arrays by length (longest = most complete, try first)
+  const sortedArrays = allMatches.sort((a, b) => b.length - a.length);
 
-  // LAYER 2: Try direct parse (best case - Gemini returned perfect JSON)
-  try {
-    clips = JSON.parse(raw);
-    console.log("✓ Direct parse succeeded");
+  // STEP 4: Try parsing each array with ultra-aggressive cleaning
+  for (let i = 0; i < sortedArrays.length; i++) {
+    const jsonStr = sortedArrays[i];
+    console.log(`\n🔧 Attempting to parse array ${i + 1}/${sortedArrays.length} (${jsonStr.length} chars)...`);
 
-    // Validate it's an array
-    if (Array.isArray(clips) && clips.length > 0) {
-      if (clips[0].title && clips[0].startTime && clips[0].endTime) {
-        console.log(`✓ Successfully parsed ${clips.length} clips (direct parse)`);
-        return clips;
+    try {
+      // ULTRA-AGGRESSIVE CLEANING SEQUENCE
+      let cleaned = jsonStr
+        // Fix escaped characters that might be broken
+        .replace(/\\n/g, ' ')  // Replace escaped newlines with spaces
+        .replace(/\\r/g, ' ')
+        .replace(/\\t/g, ' ')
+        .replace(/\\b/g, '')
+        .replace(/\\f/g, '')
+        // Fix trailing commas (most common issue)
+        .replace(/,(\s*[\]}])/g, '$1')
+        // Fix single quotes to double quotes
+        .replace(/'/g, '"')
+        // Fix unquoted property names (title: -> "title":)
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+        // Remove control characters
+        .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+        // Fix missing commas between properties
+        .replace(/"\s*\n\s*"/g, '",\n"')
+        .replace(/}[\s\n]*{/g, '},{')
+        // Fix unquoted string values (more aggressive)
+        .replace(/:\s*([^"{\[\d\-truefalsenull][^,\]}]*?)(\s*[,}\]])/g, (match, value, ending) => {
+          const trimmed = value.trim();
+          if (trimmed && trimmed !== 'true' && trimmed !== 'false' && trimmed !== 'null') {
+            return `: "${trimmed}"${ending}`;
+          }
+          return match;
+        })
+        // Remove any remaining markdown
+        .replace(/```/g, '')
+        // Fix multiple spaces
+        .replace(/\s+/g, ' ');
+
+      console.log("✨ Cleaned JSON (first 300 chars):", cleaned.substring(0, 300));
+
+      // Attempt parse
+      const parsed = JSON.parse(cleaned);
+
+      // Validate it's a proper clips array
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Check if it has required clip properties
+        const firstClip = parsed[0];
+        if (firstClip &&
+            (firstClip.title || firstClip.Title) &&
+            (firstClip.startTime || firstClip.start || firstClip.StartTime) &&
+            (firstClip.endTime || firstClip.end || firstClip.EndTime)) {
+
+          // Normalize property names if needed
+          const normalized = parsed.map(clip => ({
+            title: clip.title || clip.Title || '',
+            description: clip.description || clip.Description || '',
+            tags: clip.tags || clip.Tags || [],
+            startTime: clip.startTime || clip.start || clip.StartTime || '',
+            endTime: clip.endTime || clip.end || clip.EndTime || ''
+          }));
+
+          console.log(`✅ SUCCESS! Parsed ${normalized.length} clips from array ${i + 1}`);
+          return normalized;
+        }
       }
+
+      console.log(`⚠️ Array ${i + 1} parsed but didn't contain valid clips, trying next...`);
+    } catch (parseError) {
+      console.log(`❌ Array ${i + 1} parse failed:`, parseError instanceof Error ? parseError.message : 'Unknown error');
+      // Continue to next array
+      continue;
     }
-  } catch (directError) {
-    console.log("Direct parse failed, trying regex extraction...", directError);
   }
 
-  // LAYER 3: Extract first [...] block with regex (handles garbage before/after)
-  const arrayMatch = raw.match(/\[[\s\S]*\]/);
-  if (!arrayMatch) {
-    console.error("No JSON array found in response");
-    throw new Error("The AI returned a response that did not contain a valid JSON array.");
-  }
-
-  let jsonString = arrayMatch[0];
-  console.log("Extracted JSON array (first 500 chars):", jsonString.substring(0, 500));
-
-  // LAYER 4: Try parsing extracted array
-  try {
-    clips = JSON.parse(jsonString);
-    if (Array.isArray(clips) && clips.length > 0) {
-      if (clips[0].title && clips[0].startTime && clips[0].endTime) {
-        console.log(`✓ Successfully parsed ${clips.length} clips (regex extraction)`);
-        return clips;
-      }
-    }
-  } catch (extractError) {
-    console.log("Extracted array parse failed, applying fixes...", extractError);
-  }
-
-  // LAYER 5: Nuclear fallback - fix common JSON issues manually
-  try {
-    console.log("Attempting nuclear fallback with manual JSON repair...");
-
-    let fixed = jsonString
-      // Remove trailing commas before ] or }
-      .replace(/,(\s*[\]}])/g, '$1')
-      // Fix single quotes to double quotes
-      .replace(/'/g, '"')
-      // Fix unquoted property names (title: -> "title":)
-      .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-      // Remove any markdown artifacts that slipped through
-      .replace(/```json/g, '')
-      .replace(/```/g, '')
-      // Remove control characters except newlines
-      .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '')
-      // Fix missing commas between properties on different lines
-      .replace(/"\s*\n\s*"/g, '",\n"')
-      // Fix unquoted string values (only simple cases)
-      .replace(/:\s*([a-zA-Z][a-zA-Z0-9\s]*[a-zA-Z0-9])\s*([,}\]])/g, ': "$1"$2');
-
-    console.log("Nuclear fixed JSON (first 500 chars):", fixed.substring(0, 500));
-
-    clips = JSON.parse(fixed);
-
-    if (Array.isArray(clips) && clips.length > 0) {
-      if (clips[0].title && clips[0].startTime && clips[0].endTime) {
-        console.log(`✓ Successfully parsed ${clips.length} clips (nuclear fallback)`);
-        return clips;
-      }
-    }
-  } catch (nuclearError) {
-    console.error("Nuclear fallback also failed:", nuclearError);
-    console.error("Final attempted JSON:", jsonString.substring(0, 1000));
-    throw new Error(`The AI returned malformed JSON that could not be repaired. Error: ${nuclearError instanceof Error ? nuclearError.message : 'Unknown error'}. Please try again.`);
-  }
-
-  // LAYER 6: Final validation - must be non-empty array with required fields
-  if (!Array.isArray(clips) || clips.length === 0) {
-    throw new Error("Gemini returned empty or invalid clips array");
-  }
-
-  // Check first clip has required fields
-  if (!clips[0].title || !clips[0].startTime || !clips[0].endTime) {
-    throw new Error("Parsed clips are missing required fields (title, startTime, endTime)");
-  }
-
-  console.log(`✓ Successfully parsed ${clips.length} clips`);
-  return clips;
+  // FINAL FALLBACK: If we get here, nothing worked
+  console.error("💥 CRITICAL: All parsing attempts failed");
+  console.error("Last attempted arrays:", sortedArrays.map(a => a.substring(0, 200)));
+  throw new Error("UNRECOVERABLE_JSON_FALLBACK_TRIGGERED: Could not extract valid clips from any array in the response. Please try again.");
 };
 
 // UPDATED: New YouTube SEO-optimized prompt for viral clip generation
@@ -305,49 +308,89 @@ const getSystemInstruction = (plan: UserPlan): string => {
 }
 
 
+/**
+ * Generates clips from transcript with RETRY LOGIC and EXPONENTIAL BACKOFF
+ * This ensures we never fail due to transient Gemini issues or JSON parsing problems
+ */
 export const generateClipsFromTranscript = async (transcript: string, transcriptSegments: TranscriptSegment[], plan: UserPlan): Promise<Omit<Clip, 'videoId'>[]> => {
   const systemInstruction = getSystemInstruction(plan);
-  
   const prompt = `Analyze the following YouTube video transcript and generate the highlight clips as a JSON array:\n\nTRANSCRIPT:\n"""\n${transcript}\n"""`;
 
-  try {
-    const response = await getGeminiClient().models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction,
-      },
-    });
+  const MAX_ATTEMPTS = 3;
+  let attempts = 0;
+  let lastError: Error | null = null;
 
-    const clipsFromAi = extractJsonArray(response.text);
-    
-    const clipsWithTranscripts = clipsFromAi.map(clip => {
-        const startSeconds = timeToSeconds(clip.startTime);
-        const endSeconds = timeToSeconds(clip.endTime);
+  // RETRY LOOP with exponential backoff
+  while (attempts < MAX_ATTEMPTS) {
+    attempts++;
+    console.log(`\n🎯 Gemini API attempt ${attempts}/${MAX_ATTEMPTS}...`);
 
-        if (isNaN(startSeconds) || isNaN(endSeconds)) {
-            return { ...clip, transcript: "Could not extract transcript due to invalid timestamps." };
-        }
+    try {
+      // Call Gemini API
+      const response = await getGeminiClient().models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction,
+        },
+      });
 
-        const relevantSegments = transcriptSegments.filter(segment => {
-            const segmentEnd = segment.start + segment.duration;
-            // Find segments that overlap with the clip's time range
-            return segment.start < endSeconds && segmentEnd > startSeconds;
-        });
+      console.log("📡 Received response from Gemini, extracting clips...");
 
-        const transcriptText = relevantSegments.map(s => s.text).join(' ').trim();
-        
-        return { ...clip, transcript: transcriptText || "Transcript for this segment could not be found." };
-    });
+      // Extract clips using ULTIMATE UNBREAKABLE parser
+      const clipsFromAi = extractValidClipsArrayFromGemini(response);
 
+      console.log(`✅ Successfully extracted ${clipsFromAi.length} clips!`);
 
-    return clipsWithTranscripts;
+      // Map clips with transcript segments
+      const clipsWithTranscripts = clipsFromAi.map(clip => {
+          const startSeconds = timeToSeconds(clip.startTime);
+          const endSeconds = timeToSeconds(clip.endTime);
 
-  } catch (error) {
-    console.error("Error generating clips:", error);
-    if (error instanceof Error) {
-        throw new Error(`Failed to generate clips from Gemini API: ${error.message}`);
+          if (isNaN(startSeconds) || isNaN(endSeconds)) {
+              return { ...clip, transcript: "Could not extract transcript due to invalid timestamps." };
+          }
+
+          const relevantSegments = transcriptSegments.filter(segment => {
+              const segmentEnd = segment.start + segment.duration;
+              // Find segments that overlap with the clip's time range
+              return segment.start < endSeconds && segmentEnd > startSeconds;
+          });
+
+          const transcriptText = relevantSegments.map(s => s.text).join(' ').trim();
+
+          return { ...clip, transcript: transcriptText || "Transcript for this segment could not be found." };
+      });
+
+      // SUCCESS - return clips
+      console.log("🎉 Clip generation complete with transcripts attached!");
+      return clipsWithTranscripts;
+
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`❌ Attempt ${attempts} failed:`, lastError.message);
+
+      // If this was the last attempt, throw the error
+      if (attempts >= MAX_ATTEMPTS) {
+        console.error("💥 All retry attempts exhausted");
+        break;
+      }
+
+      // Check if it's an unrecoverable error
+      if (lastError.message.includes("UNRECOVERABLE_JSON_FALLBACK_TRIGGERED")) {
+        console.log("⚠️ Unrecoverable JSON error detected, retrying with fresh request...");
+      }
+
+      // Exponential backoff: 2s, 4s, 8s
+      const delay = 2000 * Math.pow(2, attempts - 1);
+      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-    throw new Error("An unknown error occurred while generating clips.");
   }
+
+  // All attempts failed - throw detailed error
+  console.error("🚨 CRITICAL: Failed to generate clips after all retry attempts");
+  throw new Error(
+    `Failed to generate clips from Gemini API after ${MAX_ATTEMPTS} attempts. Last error: ${lastError?.message || 'Unknown error'}. Please try again or contact support if the issue persists.`
+  );
 };
