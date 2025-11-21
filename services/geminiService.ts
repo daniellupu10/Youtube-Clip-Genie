@@ -39,194 +39,172 @@ const timeToSeconds = (time: string): number => {
     return NaN;
 };
 
-// Convert seconds to MM:SS or HH:MM:SS format
-const secondsToTime = (seconds: number): string => {
-    if (isNaN(seconds) || seconds < 0) return "00:00";
-
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-        // HH:MM:SS format
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    } else {
-        // MM:SS format
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-};
-
 
 /**
- * ← FINAL FIX: No more JSON truncation, no retries, works perfectly on Vercel
- * BULLETPROOF PARSER: Finds the largest valid JSON array to handle truncation
- * Sorts all found arrays by length and tries the longest first (most complete)
- * @param rawResponse The raw response from Gemini API
- * @returns A parsed array of clip objects with proper structure
+ * Extracts a JSON array from a string, which might be wrapped in other text or markdown.
+ * @param text The text response from the AI.
+ * @returns A parsed array of clip objects.
  */
-const extractClipsFromGemini = async (rawResponse: any): Promise<Omit<Clip, 'videoId' | 'transcript'>[]> => {
-  // Extract text from response (handle various Gemini response formats)
-  let text = '';
-  if (typeof rawResponse.text === 'function') {
-    text = await rawResponse.text();
-  } else if (rawResponse.text) {
-    text = rawResponse.text;
-  } else if (rawResponse.candidates?.[0]?.content?.parts?.[0]?.text) {
-    text = rawResponse.candidates[0].content.parts[0].text;
-  } else {
-    throw new Error("Invalid Gemini response format");
+const extractJsonArray = (text: string): Omit<Clip, 'videoId' | 'transcript'>[] => {
+  console.log("Raw AI response (first 500 chars):", text.substring(0, 500));
+
+  const startIndex = text.indexOf('[');
+  const endIndex = text.lastIndexOf(']');
+
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    console.error("Could not find a valid JSON array in the AI response.", text);
+    throw new Error("The AI returned a response that did not contain a valid JSON array.");
   }
 
-  // Remove markdown wrappers
-  text = text.trim().replace(/^```json\n?/g, '').replace(/```$/g, '');
+  let jsonString = text.substring(startIndex, endIndex + 1);
+  console.log("Extracted JSON (first 500 chars):", jsonString.substring(0, 500));
 
-  console.log("🔍 Response length:", text.length, "chars");
+  // Clean up common JSON formatting issues from AI responses
+  jsonString = jsonString
+    // Remove trailing commas before closing braces/brackets
+    .replace(/,(\s*[}\]])/g, '$1')
+    // Remove any markdown code fence artifacts
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    // Remove any control characters except newlines
+    .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '')
+    // Fix property names without quotes (e.g., title: -> "title":)
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    // Fix missing commas between properties on different lines
+    .replace(/"\s*\n\s*"/g, '",\n"')
+    // Ensure spaces after colons and commas
+    .replace(/:\s*/g, ': ')
+    .replace(/,\s*/g, ', ');
 
-  // FIND ALL JSON ARRAYS (this handles truncation by trying largest first)
-  const arrays = text.match(/\[[\s\S]*\]/g) || [];
+  console.log("Cleaned JSON (first 500 chars):", jsonString.substring(0, 500));
 
-  if (arrays.length === 0) {
-    throw new Error("No JSON array found in response");
-  }
-
-  console.log(`📊 Found ${arrays.length} potential JSON array(s)`);
-
-  // Sort by length descending — longest = most complete
-  arrays.sort((a, b) => b.length - a.length);
-
-  // Try each array starting with the longest
-  for (let i = 0; i < arrays.length; i++) {
-    const candidate = arrays[i];
-    console.log(`🔧 Trying array ${i + 1}/${arrays.length} (${candidate.length} chars)...`);
-
-    try {
-      const parsed = JSON.parse(candidate);
-
-      // Validate it's a proper clips array
-      if (Array.isArray(parsed) && parsed.length > 0 &&
-          typeof parsed[0].start === 'number' &&
-          parsed[0].title) {
-
-        // Final sanity check: all clips have required fields
-        const allValid = parsed.every(c =>
-          c.start >= 0 &&
-          c.end > c.start &&
-          c.title &&
-          c.description &&
-          Array.isArray(c.tags)
-        );
-
-        if (allValid) {
-          console.log(`✅ Successfully parsed ${parsed.length} clips from array ${i + 1}`);
-
-          // Convert numeric timestamps to string format for compatibility
-          const normalized = parsed.map((clip: any) => ({
-            title: clip.title || '',
-            description: clip.description || '',
-            tags: Array.isArray(clip.tags) ? clip.tags : [],
-            startTime: secondsToTime(clip.start),
-            endTime: secondsToTime(clip.end)
-          }));
-
-          return normalized;
-        }
+  try {
+    const parsed = JSON.parse(jsonString);
+    if (Array.isArray(parsed)) {
+      if (parsed.length > 0 && (!parsed[0].title || !parsed[0].startTime)) {
+         throw new Error("Parsed JSON objects are missing required properties.");
       }
-    } catch (parseError) {
-      console.log(`❌ Array ${i + 1} parse failed, trying next...`);
-      continue;
+      console.log(`✓ Successfully parsed ${parsed.length} clips`);
+      return parsed;
+    } else {
+      throw new Error("Parsed JSON is not an array.");
     }
-  }
+  } catch (error) {
+    console.error("Failed to parse extracted JSON string.", {
+      error,
+      jsonPreview: jsonString.substring(0, 200)
+    });
 
-  throw new Error("No valid complete clip array found in response");
+    // Try even more aggressive cleanup
+    try {
+      console.log("Attempting aggressive cleanup...");
+
+      // Remove all single quotes and replace with double quotes carefully
+      let fixedJson = jsonString
+        // First, protect already quoted strings
+        .replace(/"([^"]*)"/g, (match) => {
+          return match.replace(/'/g, '\u0001'); // Temporary placeholder
+        })
+        // Replace remaining single quotes with double quotes
+        .replace(/'/g, '"')
+        // Restore protected single quotes
+        .replace(/\u0001/g, "'")
+        // Fix any remaining structural issues
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+
+      console.log("Aggressively cleaned JSON (first 500 chars):", fixedJson.substring(0, 500));
+
+      const retryParsed = JSON.parse(fixedJson);
+      if (Array.isArray(retryParsed)) {
+        console.log("✓ Successfully parsed JSON after aggressive cleanup");
+        return retryParsed;
+      }
+    } catch (retryError) {
+      console.error("Aggressive cleanup also failed:", retryError);
+    }
+
+    if (error instanceof Error) {
+        throw new Error(`The AI returned a malformed JSON array: ${error.message}. Please try again.`);
+    }
+    throw new Error("The AI returned a malformed JSON array. Please try again.");
+  }
 };
 
-// ← FINAL FIX: Ultra-compact prompt to prevent truncation
 const getSystemInstruction = (plan: UserPlan): string => {
-  let clipLimit: number;
+  let planSpecificInstruction: string;
 
   switch (plan) {
     case 'free':
-      clipLimit = 5;
+      planSpecificInstruction = `You MUST NOT generate more than 5 clips. This is a strict limit.`;
       break;
     case 'casual':
-      clipLimit = 12; // Reduced from 20 to prevent truncation
+      planSpecificInstruction = `You can generate up to 20 clips if there are that many distinct segments.`;
       break;
     case 'mastermind':
-      clipLimit = 12; // Reduced from 50 to prevent truncation
+      planSpecificInstruction = `You can generate up to 50 clips if there are that many distinct segments.`;
       break;
     default:
-      clipLimit = 5;
+        planSpecificInstruction = `You MUST NOT generate more than 5 clips. This is a strict limit.`;
   }
 
-  return `You are a JSON-only API that generates YouTube clips. You return NOTHING except a valid, compact JSON array of clip objects. No explanations, no markdown, no thoughts, no extra text.
 
-Output MUST be valid JSON from the very first character to the last. Descriptions must be 120–250 words, no longer.
+  return `You are an expert YouTube video producer. Your task is to analyze a video transcript and identify and extract meaningful, self-contained segments.
 
-Return EXACTLY this structure and nothing else:
+**CRITICAL DIRECTIVE: Ground your entire output in the provided transcript. Do NOT invent content or use outside knowledge.**
 
-[{"start":0,"end":0,"title":"string max 70 chars","description":"string 120-250 words","tags":["tag1","tag2",... up to 25 tags]}]
+Follow this mandatory process:
 
-RULES:
-1. Generate ${clipLimit} clips MAXIMUM
-2. Each clip: 60-600 seconds (1-10 minutes)
-3. **start** and **end** are NUMBERS (seconds), NOT strings
-4. **title**: Max 70 chars, clickbait but accurate to THIS clip only
-5. **description**: 120-250 words, compact but SEO-rich
-6. **tags**: 15-25 tags relevant to THIS clip
-7. ONLY reference content within each clip's exact time range
+1.  **IDENTIFY KEY SEGMENTS:** Scan the transcript to find distinct sections where a complete topic, story, or idea is discussed. These will become your clips.
 
-BEGIN JSON ARRAY NOW — NO EXTRA TEXT:`;
+2.  **ENFORCE DURATION RULE:** Each segment you select **MUST** have a duration between **1 minute (01:00)** and **10 minutes (10:00)**. This is a strict requirement. Do not generate clips shorter than 1 minute or longer than 10 minutes.
+
+3.  **PLAN-BASED CLIP LIMIT:** ${planSpecificInstruction}
+
+4.  **GENERATE CLIP DATA:** For each valid segment, create a JSON object with the following properties:
+    *   \`title\`: Create an irresistible, "clickbait" title that accurately reflects the content of the segment. It MUST be either a **shocking statement** or an **intriguing question** that the clip answers.
+        *   *Example Style 1 (Question):* "Why is This Common Advice Actually Wrong?"
+        *   *Example Style 2 (Statement):* "You've Been Wasting Your Money on This All Along."
+        *   *AVOID BORING TITLES* like "Segment on Topic X".
+    *   \`description\`: A short, 1-2 sentence summary of what is revealed or discussed in this specific clip.
+    *   \`tags\`: An array of 3-5 relevant keywords taken directly from the clip's content.
+    *   \`startTime\` & \`endTime\`: These MUST be precise timestamps marking the beginning and end of the identified segment. The total duration between these timestamps must adhere to the 1-10 minute rule.
+
+5.  **FINAL OUTPUT:** Your entire response must be ONLY a single, valid JSON array of these clip objects. Do not include any other text, explanations, or markdown. Your response must start with \`[\` and end with \`]\`.
+
+**CRITICAL JSON FORMATTING RULES - FOLLOW EXACTLY:**
+- ALL property names MUST be in double quotes: "title", "description", "tags", "startTime", "endTime"
+- ALL string values MUST be in double quotes
+- NEVER use single quotes anywhere
+- Each property must be separated by a comma: "title": "...", "description": "..."
+- Do NOT put trailing commas before closing braces or brackets
+- Tags must be an array with double quotes: "tags": ["tag1", "tag2"]
+- Times must be strings in quotes: "startTime": "01:30"
+- Test your JSON is valid before responding
+- Output ONLY the JSON array, absolutely no text before or after
+
+**EXAMPLE OF CORRECT FORMAT:**
+\`\`\`
+[{"title": "Amazing Discovery", "description": "This reveals something incredible.", "tags": ["discovery", "science"], "startTime": "01:30", "endTime": "05:45"}]
+\`\`\``;
 }
 
 
-/**
- * ← FINAL FIX: responseSchema enforcement - THE 2025 HOLY GRAIL
- * Forces Gemini into PURE JSON MODE with validated structure
- * NO markdown, NO explanations, NO extra text - EVER
- */
 export const generateClipsFromTranscript = async (transcript: string, transcriptSegments: TranscriptSegment[], plan: UserPlan): Promise<Omit<Clip, 'videoId'>[]> => {
   const systemInstruction = getSystemInstruction(plan);
-  const prompt = `Analyze the following YouTube video transcript and generate viral clip highlights.\n\nTRANSCRIPT:\n${transcript}`;
 
-  console.log("🎯 Calling Gemini API with responseSchema enforcement...");
+  const prompt = `Analyze the following YouTube video transcript and generate the highlight clips as a JSON array:\n\nTRANSCRIPT:\n"""\n${transcript}\n"""`;
 
   try {
-    // ← FINAL FIX: responseSchema + responseMimeType = UNBREAKABLE JSON
     const response = await getGeminiClient().models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,
-        responseMimeType: "application/json", // Forces JSON output
-        temperature: 0.6, // Slightly lower for more consistent structure
-        maxOutputTokens: 8192, // Maximum to prevent truncation
-        topP: 0.95,
-        // ← THE 2025 KILL SWITCH: Forces exact JSON schema, zero tolerance for deviations
-        responseSchema: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              start: { type: "number" },
-              end: { type: "number" },
-              title: { type: "string" },
-              description: { type: "string" },
-              tags: { type: "array", items: { type: "string" } }
-            },
-            required: ["start", "end", "title", "description", "tags"]
-          }
-        }
       },
     });
 
-    console.log("📡 Received schema-validated JSON response from Gemini");
+    const clipsFromAi = extractJsonArray(response.text);
 
-    // Extract clips using bulletproof largest-array parser
-    const clipsFromAi = await extractClipsFromGemini(response);
-
-    console.log(`✅ Successfully extracted ${clipsFromAi.length} clips!`);
-
-    // Map clips with transcript segments
     const clipsWithTranscripts = clipsFromAi.map(clip => {
         const startSeconds = timeToSeconds(clip.startTime);
         const endSeconds = timeToSeconds(clip.endTime);
@@ -246,13 +224,14 @@ export const generateClipsFromTranscript = async (transcript: string, transcript
         return { ...clip, transcript: transcriptText || "Transcript for this segment could not be found." };
     });
 
-    // SUCCESS - return clips
-    console.log("🎉 Clip generation complete with schema-validated JSON!");
+
     return clipsWithTranscripts;
 
   } catch (error) {
-    console.error("💥 Gemini failed permanently:", error);
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Gemini failed permanently: ${errorMsg}`);
+    console.error("Error generating clips:", error);
+    if (error instanceof Error) {
+        throw new Error(`Failed to generate clips from Gemini API: ${error.message}`);
+    }
+    throw new Error("An unknown error occurred while generating clips.");
   }
 };
