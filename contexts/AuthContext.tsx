@@ -1,7 +1,6 @@
-// ← FIXED AUTH FOREVER + CLIP GENIE PERSONALITY INJECTED → NOW MAGICAL AND UNBREAKABLE
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import type { User as AppUser, UserPlan } from '../types';
-import { supabase, translateToGenieSpeak } from '../services/supabaseClient';
+import { supabase, getUserFriendlyError } from '../services/supabaseClient';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export const PLAN_LIMITS = {
@@ -23,7 +22,6 @@ interface AuthContextType {
   supabaseUser: SupabaseUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   upgrade: (plan: 'casual' | 'mastermind') => Promise<void>;
   recordUsage: (minutes: number) => Promise<void>;
@@ -62,7 +60,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .single();
 
       if (planError && planError.code !== 'PGRST116') { // PGRST116 = no rows
-        console.error('🧞 Error loading user plan:', planError);
+        console.error('Error loading user plan:', planError);
       }
 
       // Load user usage for current month
@@ -74,14 +72,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .single();
 
       if (usageError && usageError.code !== 'PGRST116') {
-        console.error('🧞 Error loading user usage:', usageError);
+        console.error('Error loading user usage:', usageError);
       }
 
       // Get user metadata (name from signup or email)
       const userName = supaUser.user_metadata?.name ||
                        supaUser.user_metadata?.full_name ||
                        supaUser.email?.split('@')[0] ||
-                       'Clip Lord';
+                       'User';
 
       setUser({
         loggedIn: true,
@@ -95,11 +93,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       });
     } catch (error) {
-      console.error('🧞 Error loading user data:', error);
+      console.error('Error loading user data:', error);
       // Still set user as logged in with defaults
       setUser({
         loggedIn: true,
-        name: supaUser.user_metadata?.name || supaUser.email?.split('@')[0] || 'Clip Lord',
+        name: supaUser.user_metadata?.name || supaUser.email?.split('@')[0] || 'User',
         email: supaUser.email || '',
         plan: 'free',
         usage: {
@@ -125,11 +123,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setLoading(false);
     });
 
-    // Listen for auth changes (including OAuth redirects)
+    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🧞 Auth event:', event);
+      console.log('Auth event:', event);
 
       if (session?.user) {
         setSupabaseUser(session.user);
@@ -159,8 +157,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
 
       if (error) {
-        console.error('🧞 Signup error:', error);
-        return { success: false, error: translateToGenieSpeak(error.message) };
+        console.error('Signup error:', error);
+        return { success: false, error: getUserFriendlyError(error.message) };
       }
 
       if (data.user) {
@@ -178,10 +176,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: true };
       }
 
-      return { success: false, error: translateToGenieSpeak('Unknown error during signup') };
+      return { success: false, error: getUserFriendlyError('Unknown error during signup') };
     } catch (error) {
-      console.error('🧞 Signup exception:', error);
-      return { success: false, error: translateToGenieSpeak(String(error)) };
+      console.error('Signup exception:', error);
+      return { success: false, error: getUserFriendlyError(String(error)) };
     }
   };
 
@@ -193,40 +191,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
 
       if (error) {
-        console.error('🧞 Login error:', error);
-        return { success: false, error: translateToGenieSpeak(error.message) };
+        console.error('Login error:', error);
+        return { success: false, error: getUserFriendlyError(error.message) };
       }
 
       return { success: true };
     } catch (error) {
-      console.error('🧞 Login exception:', error);
-      return { success: false, error: translateToGenieSpeak(String(error)) };
-    }
-  };
-
-  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/`,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          },
-        },
-      });
-
-      if (error) {
-        console.error('🧞 Google login error:', error);
-        return { success: false, error: translateToGenieSpeak(error.message) };
-      }
-
-      // OAuth redirects away, so this is considered success
-      return { success: true };
-    } catch (error) {
-      console.error('🧞 Google login exception:', error);
-      return { success: false, error: translateToGenieSpeak(String(error)) };
+      console.error('Login exception:', error);
+      return { success: false, error: getUserFriendlyError(String(error)) };
     }
   };
 
@@ -235,9 +207,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await supabase.auth.signOut();
       setUser(getDefaultUser());
       setSupabaseUser(null);
-      console.log('🧞 User logged out successfully');
+      console.log('User logged out successfully');
     } catch (error) {
-      console.error('🧞 Logout error:', error);
+      console.error('Logout error:', error);
     }
   };
 
@@ -252,7 +224,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .eq('user_id', supabaseUser.id);
 
       if (error) {
-        console.error('🧞 Error upgrading plan:', error);
+        console.error('Error upgrading plan:', error);
         return;
       }
 
@@ -261,9 +233,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...prevUser,
         plan: newPlan,
       }));
-      console.log(`🧞 Successfully upgraded to ${newPlan} plan!`);
+      console.log(`Successfully upgraded to ${newPlan} plan`);
     } catch (error) {
-      console.error('🧞 Upgrade exception:', error);
+      console.error('Upgrade exception:', error);
     }
   };
 
@@ -286,7 +258,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
 
       if (error) {
-        console.error('🧞 Error recording usage:', error);
+        console.error('Error recording usage:', error);
         return;
       }
 
@@ -300,7 +272,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         },
       }));
     } catch (error) {
-      console.error('🧞 Record usage exception:', error);
+      console.error('Record usage exception:', error);
     }
   };
 
@@ -310,7 +282,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseUser,
       loading,
       login,
-      loginWithGoogle,
       logout,
       upgrade,
       recordUsage,
@@ -324,7 +295,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('🧞 useAuth must be used within an AuthProvider - you forgot to wrap your app!');
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
