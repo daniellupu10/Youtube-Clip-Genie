@@ -180,30 +180,46 @@ BEGIN JSON ARRAY NOW — NO EXTRA TEXT:`;
 
 
 /**
- * ← FINAL FIX: No retries needed, single shot with maxOutputTokens 8192
- * Works perfectly on Vercel with bulletproof largest-array parser
+ * ← FINAL FIX: responseSchema enforcement - THE 2025 HOLY GRAIL
+ * Forces Gemini into PURE JSON MODE with validated structure
+ * NO markdown, NO explanations, NO extra text - EVER
  */
 export const generateClipsFromTranscript = async (transcript: string, transcriptSegments: TranscriptSegment[], plan: UserPlan): Promise<Omit<Clip, 'videoId'>[]> => {
   const systemInstruction = getSystemInstruction(plan);
   const prompt = `Analyze the following YouTube video transcript and generate viral clip highlights.\n\nTRANSCRIPT:\n${transcript}`;
 
-  console.log("🎯 Calling Gemini API (single attempt, maxOutputTokens: 8192)...");
+  console.log("🎯 Calling Gemini API with responseSchema enforcement...");
 
   try {
-    // ← FINAL FIX: Call Gemini with maxOutputTokens 8192 to prevent truncation
+    // ← FINAL FIX: responseSchema + responseMimeType = UNBREAKABLE JSON
     const response = await getGeminiClient().models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,
-        responseMimeType: "application/json", // Forces valid JSON
-        temperature: 0.7,
-        maxOutputTokens: 8192, // Maximum possible to prevent truncation
+        responseMimeType: "application/json", // Forces JSON output
+        temperature: 0.6, // Slightly lower for more consistent structure
+        maxOutputTokens: 8192, // Maximum to prevent truncation
         topP: 0.95,
+        // ← THE 2025 KILL SWITCH: Forces exact JSON schema, zero tolerance for deviations
+        responseSchema: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              start: { type: "number" },
+              end: { type: "number" },
+              title: { type: "string" },
+              description: { type: "string" },
+              tags: { type: "array", items: { type: "string" } }
+            },
+            required: ["start", "end", "title", "description", "tags"]
+          }
+        }
       },
     });
 
-    console.log("📡 Received response from Gemini");
+    console.log("📡 Received schema-validated JSON response from Gemini");
 
     // Extract clips using bulletproof largest-array parser
     const clipsFromAi = await extractClipsFromGemini(response);
@@ -231,7 +247,7 @@ export const generateClipsFromTranscript = async (transcript: string, transcript
     });
 
     // SUCCESS - return clips
-    console.log("🎉 Clip generation complete!");
+    console.log("🎉 Clip generation complete with schema-validated JSON!");
     return clipsWithTranscripts;
 
   } catch (error) {
