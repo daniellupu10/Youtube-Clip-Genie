@@ -17,7 +17,8 @@ const getGeminiClient = () => {
     }
 
     if (!ai) {
-        console.log("Gemini API initialized successfully with key:", apiKey.substring(0, 10) + "...");
+        // SECURITY: Never log API keys - only log confirmation
+        console.log("✅ Gemini API initialized successfully");
         ai = new GoogleGenAI({ apiKey });
     }
 
@@ -38,307 +39,170 @@ const timeToSeconds = (time: string): number => {
     return NaN;
 };
 
+// Convert seconds to MM:SS or HH:MM:SS format
+const secondsToTime = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
 
-/**
- * ULTIMATE UNBREAKABLE JSON EXTRACTOR - Handles ALL Gemini response formats
- * Multi-array attempt system with ultra-aggressive cleaning
- * This function NEVER gives up until all possibilities are exhausted
- * @param rawResponse The raw response from Gemini API
- * @returns A parsed array of clip objects
- */
-const extractValidClipsArrayFromGemini = (rawResponse: any): Omit<Clip, 'videoId' | 'transcript'>[] => {
-  // Extract text from various response formats
-  let text = typeof rawResponse === 'string' ? rawResponse : rawResponse.text || rawResponse.content || '';
-  text = text.trim();
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
 
-  console.log("🔍 Raw Gemini response (first 500 chars):", text.substring(0, 500));
-
-  // STEP 1: Remove all markdown wrappers aggressively
-  text = text
-    .replace(/^```json\s*/g, '')
-    .replace(/^```\s*/g, '')
-    .replace(/\s*```$/g, '')
-    .replace(/```json/g, '')
-    .replace(/```/g, '');
-
-  console.log("📝 After markdown removal (first 500 chars):", text.substring(0, 500));
-
-  // STEP 2: Find ALL potential JSON arrays in the response (handles multiple attempts, explanatory text, etc.)
-  const arrayRegex = /\[[\s\S]*?\]/g;
-  const allMatches = text.match(arrayRegex);
-
-  if (!allMatches || allMatches.length === 0) {
-    console.error("❌ No JSON arrays found in response");
-    throw new Error("No JSON array found in Gemini response - please try again");
-  }
-
-  console.log(`📊 Found ${allMatches.length} potential JSON array(s) in response`);
-
-  // STEP 3: Sort arrays by length (longest = most complete, try first)
-  const sortedArrays = allMatches.sort((a, b) => b.length - a.length);
-
-  // STEP 4: Try parsing each array with ultra-aggressive cleaning
-  for (let i = 0; i < sortedArrays.length; i++) {
-    const jsonStr = sortedArrays[i];
-    console.log(`\n🔧 Attempting to parse array ${i + 1}/${sortedArrays.length} (${jsonStr.length} chars)...`);
-
-    try {
-      // ULTRA-AGGRESSIVE CLEANING SEQUENCE
-      let cleaned = jsonStr
-        // Fix escaped characters that might be broken
-        .replace(/\\n/g, ' ')  // Replace escaped newlines with spaces
-        .replace(/\\r/g, ' ')
-        .replace(/\\t/g, ' ')
-        .replace(/\\b/g, '')
-        .replace(/\\f/g, '')
-        // Fix trailing commas (most common issue)
-        .replace(/,(\s*[\]}])/g, '$1')
-        // Fix single quotes to double quotes
-        .replace(/'/g, '"')
-        // Fix unquoted property names (title: -> "title":)
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-        // Remove control characters
-        .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-        // Fix missing commas between properties
-        .replace(/"\s*\n\s*"/g, '",\n"')
-        .replace(/}[\s\n]*{/g, '},{')
-        // Fix unquoted string values (more aggressive)
-        .replace(/:\s*([^"{\[\d\-truefalsenull][^,\]}]*?)(\s*[,}\]])/g, (match, value, ending) => {
-          const trimmed = value.trim();
-          if (trimmed && trimmed !== 'true' && trimmed !== 'false' && trimmed !== 'null') {
-            return `: "${trimmed}"${ending}`;
-          }
-          return match;
-        })
-        // Remove any remaining markdown
-        .replace(/```/g, '')
-        // Fix multiple spaces
-        .replace(/\s+/g, ' ');
-
-      console.log("✨ Cleaned JSON (first 300 chars):", cleaned.substring(0, 300));
-
-      // Attempt parse
-      const parsed = JSON.parse(cleaned);
-
-      // Validate it's a proper clips array
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // Check if it has required clip properties
-        const firstClip = parsed[0];
-        if (firstClip &&
-            (firstClip.title || firstClip.Title) &&
-            (firstClip.startTime || firstClip.start || firstClip.StartTime) &&
-            (firstClip.endTime || firstClip.end || firstClip.EndTime)) {
-
-          // Normalize property names if needed
-          const normalized = parsed.map(clip => ({
-            title: clip.title || clip.Title || '',
-            description: clip.description || clip.Description || '',
-            tags: clip.tags || clip.Tags || [],
-            startTime: clip.startTime || clip.start || clip.StartTime || '',
-            endTime: clip.endTime || clip.end || clip.EndTime || ''
-          }));
-
-          console.log(`✅ SUCCESS! Parsed ${normalized.length} clips from array ${i + 1}`);
-          return normalized;
-        }
-      }
-
-      console.log(`⚠️ Array ${i + 1} parsed but didn't contain valid clips, trying next...`);
-    } catch (parseError) {
-      console.log(`❌ Array ${i + 1} parse failed:`, parseError instanceof Error ? parseError.message : 'Unknown error');
-      // Continue to next array
-      continue;
+    if (hours > 0) {
+        // HH:MM:SS format
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        // MM:SS format
+        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
-  }
-
-  // FINAL FALLBACK: If we get here, nothing worked
-  console.error("💥 CRITICAL: All parsing attempts failed");
-  console.error("Last attempted arrays:", sortedArrays.map(a => a.substring(0, 200)));
-  throw new Error("UNRECOVERABLE_JSON_FALLBACK_TRIGGERED: Could not extract valid clips from any array in the response. Please try again.");
 };
 
-// UPDATED: New YouTube SEO-optimized prompt for viral clip generation
+
+/**
+ * FINAL UNBREAKABLE JSON EXTRACTOR - Forces Gemini to return proper clip objects
+ * Uses numeric start/end validation to avoid tag-only arrays
+ * Simple, fast, and 100% reliable with responseMimeType enforcement
+ * @param rawResponse The raw response from Gemini API
+ * @returns A parsed array of clip objects with proper structure
+ */
+const extractClipsFromGemini = (rawResponse: any): Omit<Clip, 'videoId' | 'transcript'>[] => {
+  // Extract text from response (handle various Gemini response formats)
+  let text = '';
+  if (typeof rawResponse === 'string') {
+    text = rawResponse;
+  } else if (typeof rawResponse.text === 'function') {
+    text = rawResponse.text();
+  } else if (rawResponse.text) {
+    text = rawResponse.text;
+  } else if (rawResponse.candidates?.[0]?.content?.parts?.[0]?.text) {
+    text = rawResponse.candidates[0].content.parts[0].text;
+  } else {
+    text = String(rawResponse);
+  }
+
+  text = text.trim();
+  console.log("🔍 Raw response preview:", text.substring(0, 300));
+
+  // Remove markdown blocks
+  text = text.replace(/^```json\s*/gm, '').replace(/^```\s*/gm, '').replace(/\s*```$/gm, '');
+
+  // Find the FIRST array that contains clip objects with numeric "start" property
+  // This regex specifically looks for arrays containing objects with "start": number
+  const clipArrayMatch = text.match(/\[[\s\S]*\{[\s\S]*"start"\s*:\s*\d+[\s\S]*\}[\s\S]*\]/);
+
+  if (!clipArrayMatch) {
+    console.error("❌ No valid clip array found (must contain objects with numeric 'start' property)");
+    throw new Error("No valid clip array found in response");
+  }
+
+  console.log("📦 Found clip array, parsing...");
+
+  // Parse the matched array
+  const parsed = JSON.parse(clipArrayMatch[0]);
+
+  // Final validation: must be array with objects containing numeric start/end
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("Parsed data is not a valid non-empty array");
+  }
+
+  const firstClip = parsed[0];
+  if (typeof firstClip.start !== 'number' || typeof firstClip.end !== 'number') {
+    throw new Error("Invalid clip structure: 'start' and 'end' must be numbers (seconds)");
+  }
+
+  console.log(`✅ Successfully parsed ${parsed.length} clips with numeric timestamps`);
+
+  // Convert numeric timestamps (seconds) to string format (MM:SS or HH:MM:SS) for compatibility
+  const normalized = parsed.map((clip: any) => ({
+    title: clip.title || '',
+    description: clip.description || '',
+    tags: Array.isArray(clip.tags) ? clip.tags : [],
+    startTime: secondsToTime(clip.start),
+    endTime: secondsToTime(clip.end)
+  }));
+
+  console.log(`🎯 Converted to time format:`, normalized.map(c => `${c.startTime}-${c.endTime}`).join(', '));
+
+  return normalized;
+};
+
+// NUCLEAR-ENFORCED prompt: Forces proper JSON clip objects with numeric timestamps
 const getSystemInstruction = (plan: UserPlan): string => {
-  let planSpecificInstruction: string;
+  let clipLimit: number;
 
   switch (plan) {
     case 'free':
-      planSpecificInstruction = `You MUST NOT generate more than 5 clips. This is a strict limit.`;
+      clipLimit = 5;
       break;
     case 'casual':
-      planSpecificInstruction = `You can generate up to 20 clips if there are that many distinct segments.`;
+      clipLimit = 20;
       break;
     case 'mastermind':
-      planSpecificInstruction = `You can generate up to 50 clips if there are that many distinct segments.`;
+      clipLimit = 50;
       break;
     default:
-        planSpecificInstruction = `You MUST NOT generate more than 5 clips. This is a strict limit.`;
+      clipLimit = 5;
   }
 
+  return `You are a JSON API that returns ONLY valid JSON arrays of clip objects. NO explanations, NO markdown, NO extra text, NO tags-only arrays.
 
-  return `You are a world-class YouTube clip creator specializing in viral content, controversial debates, educational videos, and highly engaging short-form content optimized for maximum reach in 2025.
+**CRITICAL: You MUST return EXACTLY this structure and NOTHING else:**
 
-**YOUR MISSION:** Analyze the provided video transcript and identify the BEST self-contained segments that will perform exceptionally well as standalone YouTube clips.
-
-**CRITICAL RULES - NEVER BREAK THESE:**
-
-1. **CONTENT ACCURACY - MOST IMPORTANT RULE:**
-   - For EACH clip you generate, you may ONLY use information that appears within that specific clip's time range (between its startTime and endTime).
-   - NEVER reference names, events, claims, topics, or context from outside the clip's exact time boundaries.
-   - If a name is mentioned at 5:00 but your clip is 10:00-12:00, DO NOT include that name in the title/description/tags.
-   - Every word in the title, description, and tags MUST be directly traceable to what is spoken within that specific clip's time range.
-   - This is the #1 rule - violating it makes the clip misleading and unusable.
-
-2. **DURATION REQUIREMENTS:**
-   - Each clip MUST be between 1 minute (01:00) and 10 minutes (10:00).
-   - Prefer clips in the 2-5 minute range for optimal engagement.
-
-3. **CLIP LIMIT:**
-   - ${planSpecificInstruction}
-
-4. **GENERATE PERFECT YOUTUBE METADATA FOR EACH CLIP:**
-
-   **TITLE (max 70 characters):**
-   - Must be instantly clickable using curiosity, shock value, or strong value proposition
-   - Use power words: "Exposed", "Revealed", "Proof", "Caught", "Secret", "Truth", "Warning", "Never", "Always", "Shocking"
-   - Use numbers when relevant: "3 Reasons Why...", "The #1 Mistake..."
-   - Use questions that create curiosity: "Why Does...", "What Happens When...", "Is This Really..."
-   - Use controversy/conflict when present: "He Admits...", "They're Lying About...", "The Real Reason..."
-   - But remember: ONLY use these if the content actually appears in THIS SPECIFIC CLIP
-   - Examples of GOOD titles:
-     * "He Just Admitted This on Camera – Watch What Happens"
-     * "The #1 Reason This Argument Failed"
-     * "Caught Lying About This Obvious Fact"
-     * "Why This Simple Question Broke His Logic"
-   - AVOID generic titles like "Discussion on Topic X" or "Interesting Segment"
-
-   **DESCRIPTION (150-350 words - longer is better for SEO):**
-   Structure the description like this:
-
-   [HOOK - First 2-3 lines, extremely engaging]
-   Write an irresistible opening that matches the title's energy. Make the viewer desperate to watch.
-
-   [DETAILED SUMMARY - Main body, 100-250 words]
-   Provide a rich, natural-language summary of everything that happens in this specific clip:
-   - Who is speaking (if mentioned in the clip)
-   - What claims are made
-   - Key arguments or points
-   - Important quotes (use quotation marks)
-   - Any conflict, revelation, or surprising moments
-   - Questions raised and answered
-   - Use timestamps within the clip if helpful (e.g., "At 0:15, he reveals...", "By 2:30, the discussion shifts to...")
-
-   [MINI TIMESTAMPS - if the clip has clear sections]
-   00:00 Intro/Setup
-   00:15 Main claim revealed
-   01:30 Counter-argument presented
-   02:45 Shocking conclusion
-
-   [CALL TO ACTION + SEO KEYWORDS - Final 2-3 lines]
-   - Ask a question to boost comments: "What do you think about this? Let us know below!"
-   - Naturally weave in searchable keywords related to the clip's content
-   - Encourage likes/shares: "Subscribe for more content like this!"
-   - Include relevant 2025 context if timely
-
-   REMEMBER: Every detail in the description must come from THIS CLIP ONLY.
-
-   **TAGS (15-30 tags for maximum SEO reach):**
-   Generate a comprehensive list including:
-   - Main topic keywords (broad): "debate", "religion", "philosophy", "podcast"
-   - Specific topic variations: "religious debate 2025", "christian vs muslim", "apologetics"
-   - Long-tail search phrases: "why do people believe", "evidence for god", "best debate moments"
-   - Speaker names ONLY if mentioned in this clip: "speaker name debate", "speaker name exposed"
-   - Viral trigger words (when relevant): "exposed", "debunked", "proof", "caught lying", "shocking truth"
-   - Question-based tags: "is god real", "does the bible say", "what is the proof"
-   - Related controversy keywords: "religious debate", "atheist vs christian", "logic vs faith"
-   - Year/timeliness: "2025", "latest debate", "recent"
-   - Format tags: "clip", "short", "highlight", "best moments"
-   - Emotion tags: "shocking", "mind blowing", "must watch", "viral"
-   - Common misspellings of popular terms if they rank
-   - Niche community tags relevant to the content
-
-   IMPORTANT: Only use tags that are directly relevant to what's discussed in THIS SPECIFIC CLIP.
-
-5. **OUTPUT FORMAT - VALID JSON ONLY:**
-   Your entire response must be a single valid JSON array. No explanations, no markdown, no extra text.
-
-   Start with [ and end with ]
-
-   Each clip object must have exactly these properties:
-   {
-     "title": "string (max 70 chars)",
-     "description": "string (150-350 words with hook, summary, timestamps, CTA, keywords)",
-     "tags": ["tag1", "tag2", ..., "tag15-30"],
-     "startTime": "MM:SS or HH:MM:SS",
-     "endTime": "MM:SS or HH:MM:SS"
-   }
-
-**CRITICAL JSON FORMATTING RULES:**
-- ALL property names in double quotes: "title", "description", "tags", "startTime", "endTime"
-- ALL string values in double quotes
-- NEVER use single quotes
-- Separate properties with commas
-- NO trailing commas before closing braces or brackets
-- Tags must be a proper JSON array: "tags": ["tag1", "tag2", "tag3"]
-- Times as strings: "startTime": "01:30"
-- Escape quotes inside strings: "He said \\"this\\" on camera"
-- Validate your JSON before responding
-
-**EXAMPLE OUTPUT:**
-\`\`\`json
 [
   {
-    "title": "He Admits He Can't Answer This Simple Question",
-    "description": "Watch what happens when a seemingly simple question completely derails this entire argument. In this clip, the speaker is confronted with a basic logical challenge that exposes a fundamental flaw in his reasoning.\\n\\nThe exchange begins with a straightforward question about evidence and methodology. At first, he tries to dodge by changing the subject, but the questioner persists. By 1:30, the tension is palpable as he realizes he's backed into a corner. At 2:15, he finally admits he doesn't have an answer – a stunning moment of honesty that undermines his previous confidence.\\n\\nThis is a masterclass in debate tactics and logical reasoning. Whether you're interested in philosophy, critical thinking, or just love watching intellectual exchanges, this clip delivers.\\n\\nTIMESTAMPS:\\n00:00 The question is asked\\n00:45 First dodge attempt\\n01:30 Pressure builds\\n02:15 The admission\\n\\nWhat do you think – was this a fair question or a trap? Drop your thoughts below and subscribe for more debate highlights!\\n\\n#debate #logic #philosophy #criticalthinking #exposed #2025",
-    "tags": ["debate", "logic", "critical thinking", "philosophy", "exposed", "caught", "admits wrong", "can't answer", "simple question", "debate tactics", "intellectual debate", "argument breakdown", "logical fallacy", "debate highlights 2025", "best debate moments", "viral debate", "debate clip", "shocking admission", "honest moment", "philosophy debate", "reasoning", "evidence", "methodology", "question dodging", "debate strategy", "mind blowing debate", "must watch debate", "debate short", "debate highlight", "2025 debate"],
-    "startTime": "05:30",
-    "endTime": "08:45"
+    "start": 123,
+    "end": 456,
+    "title": "Clickbait Title Grounded in This Clip's Content Only",
+    "description": "150-300 word SEO-optimized description...",
+    "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
   }
 ]
-\`\`\`
 
-**FINAL REMINDERS:**
-- Quality over quantity - only select clips with genuinely engaging content
-- Each clip must be self-contained and make sense without seeing the rest of the video
-- Titles must be accurate but irresistible
-- Descriptions must be long and SEO-rich (aim for 250+ words)
-- Tags must be comprehensive (aim for 20-25 tags per clip)
-- NEVER reference content outside the clip's specific time range
-- Output ONLY valid JSON, nothing else`;
+1. **start** and **end** must be NUMBERS (seconds from video start), NOT strings
+2. Generate ${clipLimit} clips maximum
+3. Each clip must be 60-600 seconds long (1-10 minutes)
+4. **title**: Max 70 chars, clickbait but accurate to clip content only
+5. **description**: 150-300 words, SEO-rich with hook + summary + CTA + keywords
+6. **tags**: Array of 15-30 relevant SEO tags for 2025 YouTube algorithm
+7. ONLY reference content within each clip's exact time range
+8. Return ONLY the JSON array - NO markdown, NO explanations, NO other text
+
+If you return anything other than a valid JSON array with these exact properties, the system will crash.`;
 }
 
 
 /**
- * Generates clips from transcript with RETRY LOGIC and EXPONENTIAL BACKOFF
- * This ensures we never fail due to transient Gemini issues or JSON parsing problems
+ * FINAL VERSION: Generates clips with 2 retries max, JSON MIME type enforcement, numeric timestamps
+ * Fast, reliable, and bulletproof against malformed responses
  */
 export const generateClipsFromTranscript = async (transcript: string, transcriptSegments: TranscriptSegment[], plan: UserPlan): Promise<Omit<Clip, 'videoId'>[]> => {
   const systemInstruction = getSystemInstruction(plan);
-  const prompt = `Analyze the following YouTube video transcript and generate the highlight clips as a JSON array:\n\nTRANSCRIPT:\n"""\n${transcript}\n"""`;
+  const prompt = `Analyze the following YouTube video transcript and generate viral clip highlights.\n\nTRANSCRIPT:\n${transcript}`;
 
-  const MAX_ATTEMPTS = 3;
-  let attempts = 0;
+  const MAX_ATTEMPTS = 2; // Reduced from 3 - with responseMimeType we rarely need retries
   let lastError: Error | null = null;
 
-  // RETRY LOOP with exponential backoff
-  while (attempts < MAX_ATTEMPTS) {
-    attempts++;
-    console.log(`\n🎯 Gemini API attempt ${attempts}/${MAX_ATTEMPTS}...`);
+  // RETRY LOOP with short delays
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    console.log(`\n🎯 Gemini API attempt ${attempt}/${MAX_ATTEMPTS}...`);
 
     try {
-      // Call Gemini API
+      // Call Gemini API with responseMimeType to FORCE proper JSON
       const response = await getGeminiClient().models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
         config: {
           systemInstruction,
+          responseMimeType: "application/json", // ← THE KILL SWITCH - forces real JSON, no more tag arrays!
+          temperature: 0.7,
+          topP: 0.95,
+          maxOutputTokens: 8192,
         },
       });
 
-      console.log("📡 Received response from Gemini, extracting clips...");
+      console.log("📡 Received JSON response from Gemini, extracting clips...");
 
-      // Extract clips using ULTIMATE UNBREAKABLE parser
-      const clipsFromAi = extractValidClipsArrayFromGemini(response);
+      // Extract clips using simplified parser that validates numeric start/end
+      const clipsFromAi = extractClipsFromGemini(response);
 
       console.log(`✅ Successfully extracted ${clipsFromAi.length} clips!`);
 
@@ -368,29 +232,24 @@ export const generateClipsFromTranscript = async (transcript: string, transcript
 
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`❌ Attempt ${attempts} failed:`, lastError.message);
+      console.error(`❌ Attempt ${attempt} failed:`, lastError.message);
 
-      // If this was the last attempt, throw the error
-      if (attempts >= MAX_ATTEMPTS) {
+      // If this was the last attempt, break and throw
+      if (attempt >= MAX_ATTEMPTS) {
         console.error("💥 All retry attempts exhausted");
         break;
       }
 
-      // Check if it's an unrecoverable error
-      if (lastError.message.includes("UNRECOVERABLE_JSON_FALLBACK_TRIGGERED")) {
-        console.log("⚠️ Unrecoverable JSON error detected, retrying with fresh request...");
-      }
-
-      // Exponential backoff: 2s, 4s, 8s
-      const delay = 2000 * Math.pow(2, attempts - 1);
-      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      // Short delay before retry (1.5 seconds only)
+      const delay = 1500;
+      console.log(`⏳ Retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
   // All attempts failed - throw detailed error
-  console.error("🚨 CRITICAL: Failed to generate clips after all retry attempts");
+  console.error("🚨 FAILED: Could not generate clips after", MAX_ATTEMPTS, "attempts");
   throw new Error(
-    `Failed to generate clips from Gemini API after ${MAX_ATTEMPTS} attempts. Last error: ${lastError?.message || 'Unknown error'}. Please try again or contact support if the issue persists.`
+    `Failed to generate clips after ${MAX_ATTEMPTS} attempts. ${lastError?.message || 'Unknown error'}. Please try again.`
   );
 };
