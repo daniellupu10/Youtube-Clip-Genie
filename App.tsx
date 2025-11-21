@@ -141,8 +141,11 @@ const App: React.FC = () => {
       // ← SUPABASE: Step 2: Save video metadata to database (graceful failure)
       let userVideoId: string | null = null;
       try {
+        console.log('📊 Attempting to save video metadata to database...');
         setLoadingMessage("Saving video metadata...");
-        userVideoId = await saveUserVideo(
+
+        // Add timeout to prevent hanging - if database takes >5s, skip it
+        const saveVideoPromise = saveUserVideo(
           url,
           currentVideoId,
           undefined, // video title (optional, can fetch from YouTube API)
@@ -150,20 +153,35 @@ const App: React.FC = () => {
           thumbnailUrl || undefined
         );
 
+        const timeoutPromise = new Promise<string | null>((resolve) => {
+          setTimeout(() => {
+            console.warn('⏱️ Database operation timed out after 5 seconds - continuing without database');
+            resolve(null);
+          }, 5000);
+        });
+
+        userVideoId = await Promise.race([saveVideoPromise, timeoutPromise]);
+
         if (!userVideoId) {
-          console.warn('Database tables not set up yet. See MUST_RUN_FIRST.md');
+          console.warn('⚠️ Database tables not set up yet. See MUST_RUN_FIRST.md');
+          console.warn('📝 App will continue to generate clips without database persistence');
           databaseAvailable = false;
+        } else {
+          console.log('✅ Video metadata saved to database (ID:', userVideoId, ')');
         }
       } catch (dbError) {
-        console.error('Database error (tables may not exist):', dbError);
-        console.warn('Continuing without database persistence. See MUST_RUN_FIRST.md');
+        console.error('❌ Database error (tables may not exist):', dbError);
+        console.warn('📝 Continuing without database persistence. See MUST_RUN_FIRST.md');
         databaseAvailable = false;
       }
+
+      console.log('🎬 Proceeding to clip generation (database available:', databaseAvailable, ')');
 
       // Step 3: Format transcript for Gemini
       const fullTranscriptText = transcriptSegments.map(segment => segment.text).join(' ');
 
       // Step 4: Generate clips from transcript (ALWAYS runs regardless of database)
+      console.log('🚀 About to call Gemini API for clip generation...');
       setLoadingMessage("Analyzing transcript & generating clips...");
       const generatedClips = await generateClipsFromTranscript(fullTranscriptText, transcriptSegments, user.plan);
       const clipsWithId = generatedClips.map(clip => ({ ...clip, videoId: currentVideoId }));
