@@ -263,6 +263,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const recordUsage = async (minutes: number) => {
     if (!supabaseUser) return;
 
+    // ADMIN CHECK: Admins have unlimited usage, don't increment counters
+    const ADMIN_EMAIL = 'your-admin-email@example.com'; // ← CHANGE THIS TO YOUR EMAIL
+    if (supabaseUser.email === ADMIN_EMAIL) {
+      console.log('👑 Admin user - unlimited usage, not recording');
+      return;
+    }
+
     const currentMonth = new Date().toISOString().slice(0, 7);
 
     // OPTIMISTIC UPDATE: Update local state FIRST so counter works immediately

@@ -88,7 +88,7 @@ export default async function handler(
       ? `https://${process.env.VERCEL_URL}`
       : req.headers.origin || 'http://localhost:5173';
 
-    // Create Stripe Checkout Session
+    // Create Stripe Checkout Session with custom branding
     const session = await stripe.checkout.sessions.create({
       customer_email: userEmail,
       client_reference_id: userId, // Link this session to our user
@@ -111,6 +111,14 @@ export default async function handler(
           plan: plan,
         },
       },
+      // Custom branding to match your website
+      custom_text: {
+        submit: {
+          message: 'Start creating amazing clips today!',
+        },
+      },
+      // Customize checkout appearance
+      ui_mode: 'hosted', // Use Stripe's hosted checkout page
     });
 
     // Return the checkout URL
