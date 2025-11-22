@@ -12,14 +12,19 @@ interface URLInputFormProps {
 
 const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlChange, onLimitExceeded }) => {
   const [url, setUrl] = useState('');
-  const { user } = useAuth();
-  
+  const { user, supabaseUser } = useAuth();
+
+  // ADMIN CHECK: Admins bypass all limits
+  const ADMIN_EMAIL = 'your-admin-email@example.com'; // ← CHANGE THIS TO YOUR EMAIL
+  const isAdmin = user.loggedIn && supabaseUser?.email === ADMIN_EMAIL;
+
   let videosExceeded = false;
   let disabledReason = '';
 
   if (!user.loggedIn) {
     disabledReason = 'Please log in to generate clips.';
-  } else {
+  } else if (!isAdmin) {
+    // Only check limits for non-admin users
     switch (user.plan) {
       case 'free':
         videosExceeded = user.usage.videosProcessed >= PLAN_LIMITS.free.videos;
@@ -36,7 +41,7 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
     }
   }
 
-  const isButtonDisabled = isLoading || !url.trim() || !user.loggedIn || videosExceeded;
+  const isButtonDisabled = isLoading || !url.trim() || !user.loggedIn || (videosExceeded && !isAdmin);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,10 +102,16 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
 
       {user.loggedIn && !videosExceeded && (
         <p className="text-center text-slate-400 text-sm mt-3">
-          You have <span className="font-bold text-cyan-400">{videosLeft}</span> video{videosLeft !== 1 ? 's' : ''} remaining this month
-          {user.plan === 'free' && <span> • Max <span className="font-semibold">1 hour</span> per video</span>}
-          {user.plan === 'casual' && <span> • Max <span className="font-semibold">3 hours</span> per video</span>}
-          {user.plan === 'mastermind' && <span> • Max <span className="font-semibold">8 hours</span> per video</span>}
+          {isAdmin ? (
+            <span className="font-bold text-yellow-400">👑 Admin Mode: Unlimited Access</span>
+          ) : (
+            <>
+              You have <span className="font-bold text-cyan-400">{videosLeft}</span> video{videosLeft !== 1 ? 's' : ''} remaining this month
+              {user.plan === 'free' && <span> • Max <span className="font-semibold">1 hour</span> per video</span>}
+              {user.plan === 'casual' && <span> • Max <span className="font-semibold">3 hours</span> per video</span>}
+              {user.plan === 'mastermind' && <span> • Max <span className="font-semibold">8 hours</span> per video</span>}
+            </>
+          )}
         </p>
       )}
 
