@@ -52,24 +52,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const currentMonth = new Date().toISOString().slice(0, 7);
 
-      // Load user plan
-      const { data: planData, error: planError } = await supabase
+      // Add 3-second timeout to prevent hanging on database queries
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Database query timeout')), 3000);
+      });
+
+      // Load user plan with timeout
+      const planPromise = supabase
         .from('user_plans')
         .select('plan')
         .eq('user_id', supaUser.id)
         .single();
 
+      const { data: planData, error: planError } = await Promise.race([planPromise, timeoutPromise])
+        .catch(err => {
+          console.warn('Plan query timed out or failed:', err.message);
+          return { data: null, error: err };
+        });
+
       if (planError && planError.code !== 'PGRST116') { // PGRST116 = no rows
         console.error('Error loading user plan:', planError);
       }
 
-      // Load user usage for current month
-      const { data: usageData, error: usageError } = await supabase
+      // Load user usage for current month with timeout
+      const usagePromise = supabase
         .from('user_usage')
         .select('videos_processed, minutes_processed')
         .eq('user_id', supaUser.id)
         .eq('month', currentMonth)
         .single();
+
+      const { data: usageData, error: usageError } = await Promise.race([usagePromise, timeoutPromise])
+        .catch(err => {
+          console.warn('Usage query timed out or failed:', err.message);
+          return { data: null, error: err };
+        });
 
       if (usageError && usageError.code !== 'PGRST116') {
         console.error('Error loading user usage:', usageError);
@@ -112,14 +129,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Listen for auth state changes
   useEffect(() => {
     // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         setSupabaseUser(session.user);
-        loadUserData(session.user);
+        await loadUserData(session.user);
       } else {
         setUser(getDefaultUser());
         setSupabaseUser(null);
       }
+      setLoading(false);
+    }).catch(err => {
+      console.error('Error checking session:', err);
       setLoading(false);
     });
 
