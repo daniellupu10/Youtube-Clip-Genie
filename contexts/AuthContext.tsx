@@ -265,8 +265,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const currentMonth = new Date().toISOString().slice(0, 7);
 
+    // OPTIMISTIC UPDATE: Update local state FIRST so counter works immediately
+    // This ensures the UI updates even if database operation fails
+    setUser(prevUser => ({
+      ...prevUser,
+      usage: {
+        ...prevUser.usage,
+        videosProcessed: prevUser.usage.videosProcessed + 1,
+        minutesProcessed: prevUser.usage.minutesProcessed + minutes,
+      },
+    }));
+
+    // Then attempt to persist to database (but don't revert if it fails)
     try {
-      // Upsert (insert or update) usage record
       const { error } = await supabase
         .from('user_usage')
         .upsert({
@@ -279,21 +290,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
 
       if (error) {
-        console.error('Error recording usage:', error);
-        return;
+        console.warn('⚠️ Could not save usage to database (tables may not exist):', error.message);
+        console.warn('📝 Usage tracking will continue in-memory but won\'t persist across sessions');
+      } else {
+        console.log('✅ Usage recorded successfully');
       }
-
-      // Update local state
-      setUser(prevUser => ({
-        ...prevUser,
-        usage: {
-          ...prevUser.usage,
-          videosProcessed: prevUser.usage.videosProcessed + 1,
-          minutesProcessed: prevUser.usage.minutesProcessed + minutes,
-        },
-      }));
     } catch (error) {
-      console.error('Record usage exception:', error);
+      console.warn('⚠️ Database error while recording usage:', error);
+      console.warn('📝 Counter will still work but won\'t persist to database');
     }
   };
 

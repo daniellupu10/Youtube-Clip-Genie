@@ -97,7 +97,10 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
 
       {user.loggedIn && !videosExceeded && (
         <p className="text-center text-slate-400 text-sm mt-3">
-          You have <span className="font-bold text-cyan-400">{videosLeft}</span> video{videosLeft !== 1 ? 's' : ''} remaining this month.
+          You have <span className="font-bold text-cyan-400">{videosLeft}</span> video{videosLeft !== 1 ? 's' : ''} remaining this month
+          {user.plan === 'free' && <span> • Max <span className="font-semibold">1 hour</span> per video</span>}
+          {user.plan === 'casual' && <span> • Max <span className="font-semibold">3 hours</span> per video</span>}
+          {user.plan === 'mastermind' && <span> • Max <span className="font-semibold">8 hours</span> per video</span>}
         </p>
       )}
 
