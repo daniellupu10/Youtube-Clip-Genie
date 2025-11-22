@@ -6,14 +6,15 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 export const PLAN_LIMITS = {
   free: {
     videos: 3,
-    videoDuration: 20, // minutes
+    videoDuration: 60, // minutes (1 hour)
   },
   casual: {
-    videos: 15,
-    videoDuration: 30, // minutes
+    videos: 10,
+    videoDuration: 180, // minutes (3 hours)
   },
   mastermind: {
-    minutes: 600,
+    videos: 20,
+    videoDuration: 480, // minutes (8 hours)
   }
 }
 

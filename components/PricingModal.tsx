@@ -41,7 +41,7 @@ const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
                     <p className="text-4xl font-bold text-white mb-6">$0<span className="text-lg font-normal text-slate-400">/month</span></p>
                     <ul className="space-y-4 mb-8 flex-grow">
                         <PlanFeature>Process up to <span className="font-bold text-white">{PLAN_LIMITS.free.videos} videos</span> / month</PlanFeature>
-                        <PlanFeature>Max <span className="font-bold text-white">{PLAN_LIMITS.free.videoDuration} min</span> video length</PlanFeature>
+                        <PlanFeature>Max <span className="font-bold text-white">{PLAN_LIMITS.free.videoDuration} min (1 hour)</span> video length</PlanFeature>
                         <PlanFeature>Up to 5 clips per video</PlanFeature>
                     </ul>
                     <button disabled className="w-full mt-auto px-6 py-3 bg-slate-700 text-slate-400 font-bold rounded-full cursor-not-allowed">
@@ -56,7 +56,7 @@ const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
                     <p className="text-4xl font-bold text-white mb-6">$9.99<span className="text-lg font-normal text-slate-400">/month</span></p>
                      <ul className="space-y-4 mb-8 flex-grow">
                         <PlanFeature><span className="font-bold text-white">{PLAN_LIMITS.casual.videos} videos</span> / month</PlanFeature>
-                        <PlanFeature>Max <span className="font-bold text-white">{PLAN_LIMITS.casual.videoDuration} min</span> video length</PlanFeature>
+                        <PlanFeature>Max <span className="font-bold text-white">{PLAN_LIMITS.casual.videoDuration} min (3 hours)</span> video length</PlanFeature>
                         <PlanFeature>Up to 20 clips per video</PlanFeature>
                     </ul>
                      {user.plan === 'casual' ? (
@@ -79,8 +79,8 @@ const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
                     <p className="text-slate-400 mb-6 h-12">For the professional creator and agencies</p>
                     <p className="text-4xl font-bold text-white mb-6">$29.99<span className="text-lg font-normal text-slate-400">/month</span></p>
                      <ul className="space-y-4 mb-8 flex-grow">
-                        <PlanFeature><span className="font-bold text-white">{PLAN_LIMITS.mastermind.minutes} minutes</span> (10 hours) of processing</PlanFeature>
-                        <PlanFeature>No individual video length limit</PlanFeature>
+                        <PlanFeature><span className="font-bold text-white">{PLAN_LIMITS.mastermind.videos} videos</span> / month</PlanFeature>
+                        <PlanFeature>Max <span className="font-bold text-white">{PLAN_LIMITS.mastermind.videoDuration} min (8 hours)</span> video length</PlanFeature>
                         <PlanFeature>Up to 50 clips per video</PlanFeature>
                         <PlanFeature>Priority Support</PlanFeature>
                     </ul>
