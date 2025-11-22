@@ -117,31 +117,68 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
   const userId = session.metadata?.userId || session.client_reference_id;
   const plan = session.metadata?.plan as 'casual' | 'mastermind' | undefined;
 
+  console.log('🔍 Checkout session details:', {
+    userId,
+    plan,
+    customerId: session.customer,
+    subscriptionId: session.subscription,
+    sessionId: session.id,
+  });
+
   if (!userId || !plan) {
     console.error('❌ Missing userId or plan in checkout session metadata');
+    console.error('Session metadata:', session.metadata);
+    console.error('Client reference ID:', session.client_reference_id);
     return;
   }
 
   console.log(`✅ Checkout completed for user ${userId}, plan: ${plan}`);
 
-  // Update user's plan in Supabase
-  const { error } = await supabase
-    .from('user_plans')
-    .upsert({
-      user_id: userId,
-      plan: plan,
-      stripe_customer_id: session.customer as string,
-      stripe_subscription_id: session.subscription as string,
-      subscription_status: 'active',
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'user_id',
-    });
+  try {
+    // First, check if user_plans table exists and is accessible
+    const { data: existingPlan, error: fetchError } = await supabase
+      .from('user_plans')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
 
-  if (error) {
-    console.error('❌ Error updating user plan:', error);
-  } else {
-    console.log(`✅ Updated user ${userId} to ${plan} plan`);
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('❌ Error checking existing plan:', fetchError);
+      console.error('This might mean the database tables are not set up. Run SETUP_DATABASE.sql!');
+    } else {
+      console.log('📋 Existing plan:', existingPlan || 'No existing plan (new user)');
+    }
+
+    // Update user's plan in Supabase
+    const { data, error } = await supabase
+      .from('user_plans')
+      .upsert({
+        user_id: userId,
+        plan: plan,
+        stripe_customer_id: session.customer as string,
+        stripe_subscription_id: session.subscription as string,
+        subscription_status: 'active',
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id',
+      })
+      .select();
+
+    if (error) {
+      console.error('❌ Error updating user plan:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+
+      // Log specific error messages
+      if (error.message?.includes('user_plans')) {
+        console.error('🚨 CRITICAL: user_plans table does not exist!');
+        console.error('👉 ACTION REQUIRED: Run SETUP_DATABASE.sql in Supabase SQL Editor');
+      }
+    } else {
+      console.log(`✅ Successfully updated user ${userId} to ${plan} plan`);
+      console.log('Updated data:', data);
+    }
+  } catch (err) {
+    console.error('❌ Exception in handleCheckoutComplete:', err);
   }
 }
 

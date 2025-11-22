@@ -272,38 +272,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const currentMonth = new Date().toISOString().slice(0, 7);
 
+    // Calculate new values BEFORE updating state
+    const newVideosProcessed = user.usage.videosProcessed + 1;
+    const newMinutesProcessed = user.usage.minutesProcessed + minutes;
+
     // OPTIMISTIC UPDATE: Update local state FIRST so counter works immediately
     // This ensures the UI updates even if database operation fails
     setUser(prevUser => ({
       ...prevUser,
       usage: {
         ...prevUser.usage,
-        videosProcessed: prevUser.usage.videosProcessed + 1,
-        minutesProcessed: prevUser.usage.minutesProcessed + minutes,
+        videosProcessed: newVideosProcessed,
+        minutesProcessed: newMinutesProcessed,
       },
     }));
 
+    console.log(`📊 Recording usage: ${newVideosProcessed} videos, ${newMinutesProcessed} minutes for month ${currentMonth}`);
+
     // Then attempt to persist to database (but don't revert if it fails)
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('user_usage')
         .upsert({
           user_id: supabaseUser.id,
           month: currentMonth,
-          videos_processed: user.usage.videosProcessed + 1,
-          minutes_processed: user.usage.minutesProcessed + minutes,
+          videos_processed: newVideosProcessed,
+          minutes_processed: newMinutesProcessed,
         }, {
           onConflict: 'user_id,month',
-        });
+        })
+        .select();
 
       if (error) {
-        console.warn('⚠️ Could not save usage to database (tables may not exist):', error.message);
+        console.error('❌ Could not save usage to database:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
+
+        if (error.message?.includes('user_usage')) {
+          console.error('🚨 CRITICAL: user_usage table does not exist!');
+          console.error('👉 ACTION REQUIRED: Run SETUP_DATABASE.sql in Supabase SQL Editor');
+        }
         console.warn('📝 Usage tracking will continue in-memory but won\'t persist across sessions');
       } else {
-        console.log('✅ Usage recorded successfully');
+        console.log('✅ Usage recorded successfully to database');
+        console.log('Saved usage data:', data);
       }
     } catch (error) {
-      console.warn('⚠️ Database error while recording usage:', error);
+      console.error('❌ Database exception while recording usage:', error);
       console.warn('📝 Counter will still work but won\'t persist to database');
     }
   };
