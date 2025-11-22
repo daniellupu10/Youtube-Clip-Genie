@@ -4,6 +4,7 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import URLInputForm from './components/URLInputForm';
 import ClipResult from './components/ClipResult';
+import PaymentSuccess from './components/PaymentSuccess';
 import type { Clip } from './types';
 import { generateClipsFromTranscript } from './services/geminiService';
 import { getTranscriptAndDuration, TranscriptSegment } from './services/transcriptService';
@@ -37,6 +38,9 @@ const getYoutubeVideoId = (url: string): string | null => {
 };
 
 const App: React.FC = () => {
+  // Check if we're on the payment success page
+  const isPaymentSuccessPage = window.location.pathname === '/payment-success';
+
   const [clips, setClips] = useState<Clip[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +52,11 @@ const App: React.FC = () => {
   const { user, loading: authLoading, recordUsage } = useAuth();
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isPricingModalOpen, setPricingModalOpen] = useState(false);
+
+  // If on payment success page, render that component
+  if (isPaymentSuccessPage) {
+    return <PaymentSuccess />;
+  }
 
   // Check for Gemini API key on mount
   useEffect(() => {
