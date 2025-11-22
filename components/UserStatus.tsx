@@ -35,11 +35,11 @@ const UserStatus: React.FC = () => {
 
         switch (user.plan) {
             case 'free':
-                return `${Math.max(0, remaining.free)} of ${PLAN_LIMITS.free.videos} videos remaining`;
+                return `${Math.max(0, remaining.free)} of ${PLAN_LIMITS.free.videos} videos remaining • Max 1hr per video`;
             case 'casual':
-                return `${Math.max(0, remaining.casual)} of ${PLAN_LIMITS.casual.videos} videos remaining`;
+                return `${Math.max(0, remaining.casual)} of ${PLAN_LIMITS.casual.videos} videos remaining • Max 3hrs per video`;
             case 'mastermind':
-                return `${Math.max(0, remaining.mastermind)} of ${PLAN_LIMITS.mastermind.videos} videos remaining`;
+                return `${Math.max(0, remaining.mastermind)} of ${PLAN_LIMITS.mastermind.videos} videos remaining • Max 8hrs per video`;
             default:
                 return '';
         }
