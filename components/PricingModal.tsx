@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { XIcon, CheckIcon } from './icons';
 import { PLAN_LIMITS } from '../contexts/AuthContext';
+import { createCheckoutSession } from '../services/stripeService';
 
 interface PricingModalProps {
   onClose: () => void;
@@ -15,11 +16,40 @@ const PlanFeature: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
-  const { upgrade, user } = useAuth();
+  const { user, supabaseUser } = useAuth();
+  const [loadingPlan, setLoadingPlan] = useState<'casual' | 'mastermind' | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleUpgrade = (plan: 'casual' | 'mastermind') => {
-    upgrade(plan);
-    onClose();
+  const handleUpgrade = async (plan: 'casual' | 'mastermind') => {
+    if (!supabaseUser) {
+      setError('Please log in to upgrade your plan');
+      return;
+    }
+
+    setLoadingPlan(plan);
+    setError(null);
+
+    try {
+      // Create Stripe Checkout session
+      const result = await createCheckoutSession(
+        plan,
+        supabaseUser.id,
+        supabaseUser.email || ''
+      );
+
+      if ('error' in result) {
+        setError(result.error);
+        setLoadingPlan(null);
+        return;
+      }
+
+      // Redirect to Stripe Checkout
+      window.location.href = result.url;
+    } catch (err) {
+      console.error('Error creating checkout session:', err);
+      setError('Failed to start checkout. Please try again.');
+      setLoadingPlan(null);
+    }
   };
 
   return (
@@ -31,7 +61,13 @@ const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
         
         <div className="p-8 sm:p-12">
             <h2 className="text-3xl sm:text-4xl font-bold text-white text-center mb-2">Choose Your Plan</h2>
-            <p className="text-center text-slate-400 mb-10 max-w-2xl mx-auto">Unlock the full power of Clip Genie and take your content creation to the next level.</p>
+            <p className="text-center text-slate-400 mb-6 max-w-2xl mx-auto">Unlock the full power of Clip Genie and take your content creation to the next level.</p>
+
+            {error && (
+              <div className="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6 max-w-2xl mx-auto text-center">
+                {error}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Free Plan */}
@@ -64,8 +100,12 @@ const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
                             Current Plan
                         </button>
                     ) : (
-                        <button onClick={() => handleUpgrade('casual')} className="w-full mt-auto px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all">
-                            Upgrade to Casual
+                        <button
+                            onClick={() => handleUpgrade('casual')}
+                            disabled={loadingPlan !== null}
+                            className="w-full mt-auto px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all disabled:bg-slate-600 disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                            {loadingPlan === 'casual' ? 'Loading...' : 'Upgrade to Casual'}
                         </button>
                     )}
                 </div>
@@ -89,8 +129,12 @@ const PricingModal: React.FC<PricingModalProps> = ({ onClose }) => {
                             Current Plan
                         </button>
                     ) : (
-                        <button onClick={() => handleUpgrade('mastermind')} className="w-full mt-auto px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all">
-                            Upgrade to Mastermind
+                        <button
+                            onClick={() => handleUpgrade('mastermind')}
+                            disabled={loadingPlan !== null}
+                            className="w-full mt-auto px-6 py-3 bg-cyan-500 text-slate-900 font-bold rounded-full hover:bg-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/50 transition-all disabled:bg-slate-600 disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                            {loadingPlan === 'mastermind' ? 'Loading...' : 'Upgrade to Mastermind'}
                         </button>
                     )}
                 </div>
