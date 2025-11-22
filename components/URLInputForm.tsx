@@ -15,9 +15,8 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
   const { user } = useAuth();
   
   let videosExceeded = false;
-  let minutesExceeded = false;
   let disabledReason = '';
-  
+
   if (!user.loggedIn) {
     disabledReason = 'Please log in to generate clips.';
   } else {
@@ -31,18 +30,18 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
         if (videosExceeded) disabledReason = 'You have reached your monthly video limit.';
         break;
       case 'mastermind':
-        minutesExceeded = user.usage.minutesProcessed >= PLAN_LIMITS.mastermind.minutes;
-        if (minutesExceeded) disabledReason = 'You have reached your monthly minute limit.';
+        videosExceeded = user.usage.videosProcessed >= PLAN_LIMITS.mastermind.videos;
+        if (videosExceeded) disabledReason = 'You have reached your monthly video limit.';
         break;
     }
   }
 
-  const isButtonDisabled = isLoading || !url.trim() || !user.loggedIn || videosExceeded || minutesExceeded;
+  const isButtonDisabled = isLoading || !url.trim() || !user.loggedIn || videosExceeded;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isButtonDisabled) {
-      if(videosExceeded || minutesExceeded) {
+      if(videosExceeded) {
         onLimitExceeded();
       }
       return;
@@ -58,8 +57,20 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
     onUrlChange(newUrl);
   };
   
-  const freeVideosLeft = PLAN_LIMITS.free.videos - user.usage.videosProcessed;
+  const getVideosRemaining = () => {
+    switch (user.plan) {
+      case 'free':
+        return Math.max(0, PLAN_LIMITS.free.videos - user.usage.videosProcessed);
+      case 'casual':
+        return Math.max(0, PLAN_LIMITS.casual.videos - user.usage.videosProcessed);
+      case 'mastermind':
+        return Math.max(0, PLAN_LIMITS.mastermind.videos - user.usage.videosProcessed);
+      default:
+        return 0;
+    }
+  };
 
+  const videosLeft = getVideosRemaining();
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -84,14 +95,14 @@ const URLInputForm: React.FC<URLInputFormProps> = ({ onSubmit, isLoading, onUrlC
         </div>
       </form>
 
-      {user.plan === 'free' && user.loggedIn && !videosExceeded && (
+      {user.loggedIn && !videosExceeded && (
         <p className="text-center text-slate-400 text-sm mt-3">
-          You have <span className="font-bold text-cyan-400">{freeVideosLeft}</span> free video generation{freeVideosLeft !== 1 ? 's' : ''} left this month.
+          You have <span className="font-bold text-cyan-400">{videosLeft}</span> video{videosLeft !== 1 ? 's' : ''} remaining this month.
         </p>
       )}
 
       {disabledReason && (
-         <p 
+         <p
           className="text-center text-amber-400 text-sm mt-3 max-w-2xl mx-auto cursor-pointer hover:underline"
           onClick={onLimitExceeded}
         >

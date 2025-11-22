@@ -27,13 +27,19 @@ const UserStatus: React.FC = () => {
     }, [isOpen]);
 
     const getUsageText = () => {
+        const remaining = {
+            free: PLAN_LIMITS.free.videos - user.usage.videosProcessed,
+            casual: PLAN_LIMITS.casual.videos - user.usage.videosProcessed,
+            mastermind: PLAN_LIMITS.mastermind.videos - user.usage.videosProcessed,
+        };
+
         switch (user.plan) {
             case 'free':
-                return `${user.usage.videosProcessed}/${PLAN_LIMITS.free.videos} videos used`;
+                return `${Math.max(0, remaining.free)} of ${PLAN_LIMITS.free.videos} videos remaining`;
             case 'casual':
-                return `${user.usage.videosProcessed}/${PLAN_LIMITS.casual.videos} videos used`;
+                return `${Math.max(0, remaining.casual)} of ${PLAN_LIMITS.casual.videos} videos remaining`;
             case 'mastermind':
-                return `${user.usage.minutesProcessed}/${PLAN_LIMITS.mastermind.minutes} mins used`;
+                return `${Math.max(0, remaining.mastermind)} of ${PLAN_LIMITS.mastermind.videos} videos remaining`;
             default:
                 return '';
         }
@@ -46,7 +52,7 @@ const UserStatus: React.FC = () => {
             case 'casual':
                  return (user.usage.videosProcessed / PLAN_LIMITS.casual.videos) * 100;
             case 'mastermind':
-                return (user.usage.minutesProcessed / PLAN_LIMITS.mastermind.minutes) * 100;
+                return (user.usage.videosProcessed / PLAN_LIMITS.mastermind.videos) * 100;
             default:
                 return 0;
         }

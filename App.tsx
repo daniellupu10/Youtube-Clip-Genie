@@ -105,6 +105,24 @@ const App: React.FC = () => {
       const videoMinutes = Math.ceil(duration / 60);
 
       // Step 2: Validate against plan limits
+      // Check video count limit first
+      if (user.plan === 'free' && user.usage.videosProcessed >= PLAN_LIMITS.free.videos) {
+        setError(`You've reached your monthly limit of ${PLAN_LIMITS.free.videos} videos. Upgrade to process more videos.`);
+        setPricingModalOpen(true);
+        setIsLoading(false);
+        return;
+      } else if (user.plan === 'casual' && user.usage.videosProcessed >= PLAN_LIMITS.casual.videos) {
+        setError(`You've reached your monthly limit of ${PLAN_LIMITS.casual.videos} videos. Upgrade to process more videos.`);
+        setPricingModalOpen(true);
+        setIsLoading(false);
+        return;
+      } else if (user.plan === 'mastermind' && user.usage.videosProcessed >= PLAN_LIMITS.mastermind.videos) {
+        setError(`You've reached your monthly limit of ${PLAN_LIMITS.mastermind.videos} videos.`);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check video duration limit
       let durationLimitExceeded = false;
       let limit = 0;
       if (user.plan === 'free') {
@@ -113,10 +131,13 @@ const App: React.FC = () => {
       } else if (user.plan === 'casual') {
         limit = PLAN_LIMITS.casual.videoDuration;
         durationLimitExceeded = videoMinutes > limit;
+      } else if (user.plan === 'mastermind') {
+        limit = PLAN_LIMITS.mastermind.videoDuration;
+        durationLimitExceeded = videoMinutes > limit;
       }
 
       if (durationLimitExceeded) {
-          setError(`Your plan is limited to videos under ${limit} minutes. This video is ${videoMinutes} minutes long.`);
+          setError(`Your plan is limited to videos under ${limit} minutes (${Math.floor(limit/60)} hours). This video is ${videoMinutes} minutes long.`);
           setPricingModalOpen(true);
           setIsLoading(false);
           return;
