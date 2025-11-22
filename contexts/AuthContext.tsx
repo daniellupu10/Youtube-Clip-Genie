@@ -9,11 +9,11 @@ export const PLAN_LIMITS = {
     videoDuration: 60, // minutes (1 hour)
   },
   casual: {
-    videos: 10,
+    videos: 15,
     videoDuration: 180, // minutes (3 hours)
   },
   mastermind: {
-    videos: 20,
+    videos: 35,
     videoDuration: 480, // minutes (8 hours)
   }
 }
